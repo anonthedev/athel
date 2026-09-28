@@ -139,7 +139,7 @@ export function ResearchTrace({
           </span>
         ) : null}
         {run.status === 'running' ? (
-          <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={onAbort}>
+          <Button type="button" variant="destructive" size="sm" className="ml-auto cursor-pointer" onClick={onAbort}>
             Abort
           </Button>
         ) : null}

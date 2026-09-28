@@ -353,14 +353,16 @@ function App(): React.JSX.Element {
                   </span>
                 </button>
                 {run.status === 'running' || run.status === 'review' ? (
-                  <button
+                  <Button
                     type="button"
+                    variant="destructive"
+                    size="xs"
                     aria-label="Abort research"
-                    className="mr-1.5 mt-2 shrink-0 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-background hover:text-foreground"
+                    className="mt-2 mr-1.5 cursor-pointer"
                     onClick={() => abortRun(run.id)}
                   >
                     Abort
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             ))}

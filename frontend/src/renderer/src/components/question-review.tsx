@@ -79,7 +79,7 @@ export function QuestionReview({
       <header className="flex items-center gap-3 border-b px-8 py-4">
         <h2 className="min-w-0 truncate text-base font-medium">{topic}</h2>
         <span className="shrink-0 text-xs text-muted-foreground">Review questions</span>
-        <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={onAbort}>
+        <Button type="button" variant="destructive" size="sm" className="ml-auto cursor-pointer" onClick={onAbort}>
           Abort
         </Button>
       </header>
