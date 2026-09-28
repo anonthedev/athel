@@ -2,6 +2,7 @@ from app.states import OverallState, KnowledgeGap, Finding, SourcedNote
 from app.llm import planner_llm
 from pydantic import BaseModel
 from langgraph.types import Send, Command
+from langgraph.types import interrupt
 
 MAX_ITERATIONS = 3
 
@@ -18,7 +19,7 @@ def generate_gaps(state: OverallState):
                 Topic:
                 {state["topic"]}"""
 
-    result = planner_llm.with_structured_output(GapList).invoke(prompt)
+    result = planner_llm().with_structured_output(GapList).invoke(prompt)
     return {
         "gaps": [
             KnowledgeGap(id=index, question=question)
@@ -36,6 +37,31 @@ def fan_out_gaps(state: OverallState):
         ]
 
     return "write_final_report"
+
+def approved_questions(payload: dict) -> list[str]:
+    raw = payload.get("questions", [])
+    if not isinstance(raw, list):
+        return []
+    return [question.strip() for question in raw if isinstance(question, str) and question.strip()][:7]
+
+
+def review_gaps(state: OverallState):
+    edited = interrupt({"questions": [gap.question for gap in state["gaps"]]})
+    questions = approved_questions(edited)
+
+    if not questions:
+        edited = interrupt({
+            "questions": [gap.question for gap in state["gaps"]],
+            "error": "Add at least one question",
+        })
+        questions = approved_questions(edited)
+
+    return {
+        "gaps": [
+            KnowledgeGap(id=index, question=question)
+            for index, question in enumerate(questions, start=1)
+        ]
+    }
 
 def draft_queries(state: dict) -> Command:
     class QueryList(BaseModel):
@@ -62,7 +88,7 @@ def draft_queries(state: dict) -> Command:
             f"Question:\n{gap.question}"
         )
 
-    result = planner_llm.with_structured_output(QueryList).invoke(prompt)
+    result = planner_llm().with_structured_output(QueryList).invoke(prompt)
 
     blocked = state.get("blocked_domains", []) if isinstance(state, dict) else []
 
@@ -118,7 +144,7 @@ def update_checklist(state: OverallState) -> Command:
 
         if gap.notes:
             listed = "\n".join(f"- {note.note}\n  source: {note.source}" for note in gap.notes)
-            result = planner_llm.with_structured_output(MissingList).invoke(
+            result = planner_llm().with_structured_output(MissingList).invoke(
                 "List only requirements the question already names that no note answers.\n"
                 "Restate that requirement. Do not write a new question or a related issue.\n"
                 "Return an empty list when the notes answer the question.\n\n"

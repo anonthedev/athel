@@ -42,7 +42,7 @@ def scrape(state: dict) -> dict:
     if not text:
         return {"findings": []}
         
-    result = extractor_llm.with_structured_output(PageResult, include_raw=True).invoke(
+    result = extractor_llm().with_structured_output(PageResult, include_raw=True).invoke(
         f"""Read this page and decide if it answers the question.
 Question:
 {state["question"]}

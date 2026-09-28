@@ -6,8 +6,22 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { MarkdownReport } from '@/components/markdown-report'
-import { ResearchTrace, type ResearchRun } from '@/components/research-trace'
-import { getReport, listReports, slugify, startResearch, type ReportSummary } from '@/lib/api'
+import { QuestionReview } from '@/components/question-review'
+import { ResearchSetup } from '@/components/research-setup'
+import { ResearchTrace, runStatusLabel, type DraftQuestion, type ResearchRun } from '@/components/research-trace'
+import {
+  abortResearch,
+  getReport,
+  listModels,
+  listReports,
+  resumeResearch,
+  slugify,
+  startResearch,
+  type OpenRouterModel,
+  type ReportSummary,
+  type ResearchEvent
+} from '@/lib/api'
+import { readSettings, writeSettings } from '@/lib/settings'
 import { applyTheme, readTheme, type Theme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
@@ -48,7 +62,15 @@ function App(): React.JSX.Element {
   const [listError, setListError] = useState<string | null>(null)
   const [loadingList, setLoadingList] = useState(true)
   const [theme, setTheme] = useState<Theme>(readTheme)
+  const [apiKey, setApiKey] = useState(() => readSettings().apiKey)
+  const [models, setModels] = useState(() => readSettings().models)
+  const [catalog, setCatalog] = useState<OpenRouterModel[]>([])
+  const [catalogError, setCatalogError] = useState<string | null>(null)
+  const [keyRejected, setKeyRejected] = useState(false)
   const screenRef = useRef<Screen>({ type: 'compose' })
+  const continuing = useRef(new Set<string>())
+  const runAbort = useRef(new Map<string, AbortController>())
+  const abortedRuns = useRef(new Set<string>())
   const userNavigated = useRef(false)
   const openSeq = useRef(0)
 
@@ -57,6 +79,21 @@ function App(): React.JSX.Element {
     screenRef.current = next
     setScreen(next)
   }
+
+  useEffect(() => {
+    writeSettings({ apiKey, models })
+  }, [apiKey, models])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    listModels(controller.signal)
+      .then((items) => setCatalog(items))
+      .catch((cause: unknown) => {
+        if (cause instanceof DOMException && cause.name === 'AbortError') return
+        setCatalogError(cause instanceof Error ? cause.message : 'Could not load OpenRouter models')
+      })
+    return () => controller.abort()
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -96,16 +133,111 @@ function App(): React.JSX.Element {
     }
   }
 
+  function patchRun(id: string, update: (run: ResearchRun) => ResearchRun): void {
+    setRuns((current) => current.map((item) => (item.id === id ? update(item) : item)))
+  }
+
+  function draftQuestions(questions: string[]): DraftQuestion[] {
+    return questions.map((text) => ({ id: crypto.randomUUID(), text }))
+  }
+
+  function applyEvent(
+    id: string,
+    researchEvent: ResearchEvent,
+    report: { markdown: string },
+    paused: { value: boolean }
+  ): void {
+    if (abortedRuns.current.has(id)) return
+    if (researchEvent.type === 'aborted') {
+      abortRun(id)
+      return
+    }
+    if (researchEvent.type === 'report') report.markdown = researchEvent.markdown
+    if (researchEvent.type === 'review') {
+      paused.value = true
+      patchRun(id, (item) => ({
+        ...item,
+        status: 'review',
+        questions: draftQuestions(researchEvent.questions),
+        reviewError: researchEvent.error ?? null
+      }))
+      return
+    }
+    if (researchEvent.type === 'error') {
+      patchRun(id, (item) => ({ ...item, status: 'error', error: researchEvent.message }))
+      return
+    }
+    if (researchEvent.type === 'done' || researchEvent.type === 'gaps') return
+    patchRun(id, (item) => ({ ...item, events: [...item.events, researchEvent] }))
+  }
+
+  async function openFinishedReport(id: string, nextTopic: string, reportMarkdown: string): Promise<void> {
+    if (abortedRuns.current.has(id)) return
+    const items = await listReports()
+    if (abortedRuns.current.has(id)) return
+    setReports(items)
+    const saved = items.find((item) => item.slug === slugify(nextTopic))
+    if (!saved) {
+      patchRun(id, (item) => ({
+        ...item,
+        status: 'error',
+        error: item.error ?? 'Report was not saved'
+      }))
+      return
+    }
+
+    const markdown = reportMarkdown || (await getReport(saved.slug))
+    if (abortedRuns.current.has(id)) return
+    const watching = screenRef.current.type === 'trace' && screenRef.current.id === id
+    if (watching) {
+      screenRef.current = { type: 'report', slug: saved.slug }
+      setScreen({ type: 'report', slug: saved.slug })
+      setArticle({ slug: saved.slug, title: saved.title, markdown })
+      setReportError(null)
+    }
+    setRuns((current) => current.filter((item) => item.id !== id))
+  }
+
+  function failRun(id: string, cause: unknown): void {
+    if (cause instanceof DOMException && cause.name === 'AbortError') return
+    const message = cause instanceof Error ? cause.message : 'Research failed'
+    patchRun(id, (item) => ({ ...item, status: 'error', error: message }))
+  }
+
+  function bindRun(id: string): AbortSignal {
+    const controller = new AbortController()
+    runAbort.current.set(id, controller)
+    return controller.signal
+  }
+
+  function abortRun(id: string): void {
+    if (abortedRuns.current.has(id)) return
+    abortedRuns.current.add(id)
+    runAbort.current.get(id)?.abort()
+    runAbort.current.delete(id)
+    continuing.current.delete(id)
+    void abortResearch(id).catch(() => undefined)
+    setRuns((current) => current.filter((item) => item.id !== id))
+    if (screenRef.current.type === 'trace' && screenRef.current.id === id) {
+      go({ type: 'compose' })
+    }
+  }
+
   function onSubmit(event: FormEvent): void {
     event.preventDefault()
     const nextTopic = topic.trim()
-    if (!nextTopic) return
+    const nextKey = apiKey.trim()
+    if (!nextTopic || nextKey.length < 8 || keyRejected) return
+    if (!models.planner || !models.extractor || !models.writer) return
 
     const id = crypto.randomUUID()
     const run: ResearchRun = {
       id,
       topic: nextTopic,
       status: 'running',
+      phase: 'drafting',
+      questions: [],
+      reviewError: null,
       events: [],
       error: null
     }
@@ -114,63 +246,76 @@ function App(): React.JSX.Element {
     setTopic('')
 
     void (async () => {
-      let reportMarkdown = ''
+      const report = { markdown: '' }
+      const paused = { value: false }
+      const signal = bindRun(id)
       try {
-        await startResearch(nextTopic, (researchEvent) => {
-          if (researchEvent.type === 'report') reportMarkdown = researchEvent.markdown
-          if (researchEvent.type === 'error') {
-            setRuns((current) =>
-              current.map((item) =>
-                item.id === id ? { ...item, error: researchEvent.message } : item
-              )
-            )
-            return
-          }
-          if (researchEvent.type === 'done') return
-          setRuns((current) =>
-            current.map((item) =>
-              item.id === id ? { ...item, events: [...item.events, researchEvent] } : item
-            )
-          )
-        })
-
-        const items = await listReports()
-        setReports(items)
-        const saved = items.find((item) => item.slug === slugify(nextTopic))
-        if (!saved) {
-          setRuns((current) =>
-            current.map((item) =>
-              item.id === id
-                ? { ...item, status: 'error', error: item.error ?? 'Report was not saved' }
-                : item
-            )
-          )
-          return
-        }
-
-        const markdown = reportMarkdown || (await getReport(saved.slug))
-        const watching = screenRef.current.type === 'trace' && screenRef.current.id === id
-        if (watching) {
-          screenRef.current = { type: 'report', slug: saved.slug }
-          setScreen({ type: 'report', slug: saved.slug })
-          setArticle({ slug: saved.slug, title: saved.title, markdown })
-          setReportError(null)
-        }
-        setRuns((current) => current.filter((item) => item.id !== id))
+        await startResearch(nextTopic, { apiKey: nextKey, models, threadId: id }, (researchEvent) => {
+          applyEvent(id, researchEvent, report, paused)
+        }, signal)
+        if (abortedRuns.current.has(id) || paused.value) return
+        await openFinishedReport(id, nextTopic, report.markdown)
       } catch (cause: unknown) {
+        if (abortedRuns.current.has(id)) return
+        failRun(id, cause)
+      }
+    })()
+  }
+
+  function continueResearch(id: string): void {
+    if (continuing.current.has(id)) return
+    const run = runs.find((item) => item.id === id)
+    const nextKey = apiKey.trim()
+    if (!run || run.status !== 'review') return
+    const questions = run.questions
+      .map((question) => question.text.trim())
+      .filter(Boolean)
+      .slice(0, 7)
+    if (questions.length === 0) {
+      patchRun(id, (item) => ({ ...item, reviewError: 'Add at least one question' }))
+      return
+    }
+
+    continuing.current.add(id)
+    patchRun(id, (item) => ({
+      ...item,
+      status: 'running',
+      phase: 'researching',
+      reviewError: null,
+      events: [{ type: 'gaps', questions }, ...item.events.filter((event) => event.type !== 'gaps')]
+    }))
+
+    void (async () => {
+      const report = { markdown: '' }
+      const paused = { value: false }
+      const signal = bindRun(id)
+      try {
+        await resumeResearch(id, questions, { apiKey: nextKey, models }, (researchEvent) => {
+          applyEvent(id, researchEvent, report, paused)
+        }, signal)
+      } catch (cause: unknown) {
+        if (abortedRuns.current.has(id)) return
         if (cause instanceof DOMException && cause.name === 'AbortError') return
         const message = cause instanceof Error ? cause.message : 'Research failed'
-        setRuns((current) =>
-          current.map((item) =>
-            item.id === id ? { ...item, status: 'error', error: message } : item
-          )
-        )
+        patchRun(id, (item) => ({ ...item, status: 'review', reviewError: message }))
+        return
+      } finally {
+        continuing.current.delete(id)
+      }
+      if (abortedRuns.current.has(id) || paused.value) return
+      try {
+        await openFinishedReport(id, run.topic, report.markdown)
+      } catch (cause: unknown) {
+        if (abortedRuns.current.has(id)) return
+        failRun(id, cause)
       }
     })()
   }
 
   const activeRun = runs.find((run) => screen.type === 'trace' && run.id === screen.id)
-  const ongoing = runs.filter((run) => run.status === 'running' || run.status === 'error')
+  const ongoing = runs.filter(
+    (run) => run.status === 'running' || run.status === 'review' || run.status === 'error'
+  )
 
   return (
     <div className="flex h-full min-h-0 w-full bg-background font-sans text-foreground">
@@ -189,21 +334,35 @@ function App(): React.JSX.Element {
               </div>
             ) : null}
             {ongoing.map((run) => (
-              <button
+              <div
                 key={run.id}
-                type="button"
                 className={cn(
-                  'flex w-full flex-col items-start gap-0.5 rounded-lg px-2.5 py-2 text-left hover:bg-sidebar-accent',
+                  'flex w-full items-start rounded-lg hover:bg-sidebar-accent',
                   screen.type === 'trace' && screen.id === run.id && 'bg-sidebar-accent'
                 )}
-                onClick={() => go({ type: 'trace', id: run.id })}
               >
-                <span className="line-clamp-2 text-sm font-medium">{run.topic}</span>
-                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                  {run.status === 'running' ? <Spinner /> : null}
-                  {run.status === 'running' ? 'Researching' : 'Could not finish'}
-                </span>
-              </button>
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 flex-col items-start gap-0.5 px-2.5 py-2 text-left"
+                  onClick={() => go({ type: 'trace', id: run.id })}
+                >
+                  <span className="line-clamp-2 text-sm font-medium">{run.topic}</span>
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                    {run.status === 'running' ? <Spinner /> : null}
+                    {runStatusLabel(run)}
+                  </span>
+                </button>
+                {run.status === 'running' || run.status === 'review' ? (
+                  <button
+                    type="button"
+                    aria-label="Abort research"
+                    className="mr-1.5 mt-2 shrink-0 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-background hover:text-foreground"
+                    onClick={() => abortRun(run.id)}
+                  >
+                    Abort
+                  </button>
+                ) : null}
+              </div>
             ))}
 
             <div className="px-2.5 pt-3 pb-1 text-xs font-medium text-muted-foreground">Reports</div>
@@ -253,15 +412,26 @@ function App(): React.JSX.Element {
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         {screen.type === 'compose' ? (
-          <form className="flex min-h-0 flex-1 items-center justify-center px-8" onSubmit={onSubmit}>
-            <div className="flex w-full max-w-xl -translate-y-6 flex-col items-center gap-8">
+          <form className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-8 py-8" onSubmit={onSubmit}>
+            <div className="my-auto flex w-full max-w-xl flex-col items-center gap-8">
               <div className="flex flex-col gap-2 text-center">
                 <h2 className="text-2xl font-medium tracking-tight">What should I research?</h2>
                 <p className="text-sm text-muted-foreground">
-                  Ask one question. The report stays in the sidebar when it is ready.
+                  Ask one question. You can edit the research questions before the search starts.
                 </p>
               </div>
               <div className="w-full rounded-2xl border bg-card shadow-sm transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/40">
+                <div className="border-b px-4 py-4">
+                  <ResearchSetup
+                    apiKey={apiKey}
+                    onApiKeyChange={setApiKey}
+                    models={models}
+                    onModelsChange={setModels}
+                    catalog={catalog}
+                    catalogError={catalogError}
+                    onKeyRejectedChange={setKeyRejected}
+                  />
+                </div>
                 <Textarea
                   autoFocus
                   value={topic}
@@ -284,7 +454,14 @@ function App(): React.JSX.Element {
                   <Button
                     type="submit"
                     className="disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:disabled:bg-transparent"
-                    disabled={topic.trim().length === 0}
+                    disabled={
+                      topic.trim().length === 0 ||
+                      apiKey.trim().length < 8 ||
+                      keyRejected ||
+                      !models.planner ||
+                      !models.extractor ||
+                      !models.writer
+                    }
                   >
                     Research
                   </Button>
@@ -306,7 +483,22 @@ function App(): React.JSX.Element {
           </form>
         ) : null}
 
-        {screen.type === 'trace' && activeRun ? <ResearchTrace run={activeRun} /> : null}
+        {screen.type === 'trace' && activeRun?.status === 'review' ? (
+          <QuestionReview
+            topic={activeRun.topic}
+            questions={activeRun.questions}
+            error={activeRun.reviewError}
+            onChange={(questions) =>
+              patchRun(activeRun.id, (item) => ({ ...item, questions, reviewError: null }))
+            }
+            onContinue={() => continueResearch(activeRun.id)}
+            onAbort={() => abortRun(activeRun.id)}
+          />
+        ) : null}
+
+        {screen.type === 'trace' && activeRun && activeRun.status !== 'review' ? (
+          <ResearchTrace run={activeRun} onAbort={() => abortRun(activeRun.id)} />
+        ) : null}
 
         {screen.type === 'report' ? (
           <div className="flex min-h-0 flex-1 flex-col">

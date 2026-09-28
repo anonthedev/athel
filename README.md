@@ -28,9 +28,11 @@ A gap is **resolved** when notes cover the question. It stays **pending** and is
 
 ## Models
 
-All three calls go through [OpenRouter](https://openrouter.ai/) (`OPENROUTER_API_KEY`):
+Each run uses a key and three models you choose in the window. The catalog comes from [OpenRouter](https://openrouter.ai/). The key stays in the browser’s local storage on this computer and is sent only to the local server, which uses it for that run and does not write it to disk.
 
-| Role | Model | Job |
+Planner and extractor choices are limited to models that accept tool calls, because those steps return structured data. The writer can be any text model.
+
+| Role | Default | Job |
 | --- | --- | --- |
 | Planner | `openai/gpt-5-mini` | Split the topic into 5–7 questions, write search queries, and list what a gap still lacks |
 | Extractor | `google/gemini-3.1-flash-lite` | Read a scraped page and keep only the facts that answer the question, or useful side notes |
@@ -66,7 +68,7 @@ deep-research/
 - Python 3.13
 - [uv](https://docs.astral.sh/uv/)
 - Node.js with [pnpm](https://pnpm.io/)
-- An OpenRouter API key
+- An [OpenRouter](https://openrouter.ai/keys) API key, entered in the app
 
 ## Setup
 
@@ -75,7 +77,6 @@ From the repo root:
 ```bash
 cd backend
 uv sync
-printf 'OPENROUTER_API_KEY=sk-or-...\n' > .env
 
 cd ../frontend
 pnpm install
@@ -102,7 +103,7 @@ pnpm build:linux   # or build:win / build:mac
 
 ## Using the app
 
-1. Type a question, or pick a suggestion, and submit with the button or Ctrl/⌘+Enter.
+1. Enter an OpenRouter API key, pick a planner, extractor, and writer, then type a question or pick a suggestion. Submit with the button or Ctrl/⌘+Enter.
 2. The sidebar lists the run under **Ongoing research**. The main pane shows questions, search hits, findings, dead URLs, and gap status as they arrive.
 3. When the stream finishes, the Markdown report opens and the run is filed under **Reports**.
 4. Earlier reports load from disk. On startup the most recently updated report opens automatically.
@@ -114,7 +115,9 @@ Report filenames are a slug of the topic (`backend/reports/<slug>.md`). Asking t
 | Method | Path | Response |
 | --- | --- | --- |
 | `GET` | `/health` | `{ "status": "ok" }` |
-| `POST` | `/research` | SSE stream. Body: `{ "topic": "..." }` |
+| `GET` | `/models` | OpenRouter catalog: `{ id, name, tools }`. `tools` is true when the model can fill the planner or extractor role |
+| `POST` | `/openrouter/key` | Checks a key. Body: `{ "api_key": "..." }`. `{ "ok": true }`, or 401 if OpenRouter rejects it |
+| `POST` | `/research` | SSE stream. Body: `{ "topic", "api_key", "planner_model", "extractor_model", "writer_model" }` |
 | `GET` | `/reports` | JSON list of `{ slug, title, updated_at }`, newest first |
 | `GET` | `/reports/{slug}` | Raw Markdown |
 

@@ -1,14 +1,30 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import type { ResearchEvent } from '@/lib/api'
 import { ExternalLink } from '@/components/markdown-report'
 
+export type DraftQuestion = {
+  id: string
+  text: string
+}
+
 export type ResearchRun = {
   id: string
   topic: string
-  status: 'running' | 'error'
+  status: 'running' | 'review' | 'error'
+  phase: 'drafting' | 'researching'
+  questions: DraftQuestion[]
+  reviewError: string | null
   events: ResearchEvent[]
   error: string | null
+}
+
+export function runStatusLabel(run: Pick<ResearchRun, 'status' | 'phase'>): string {
+  if (run.status === 'error') return 'Could not finish'
+  if (run.status === 'review') return 'Review questions'
+  if (run.phase === 'drafting') return 'Drafting questions'
+  return 'Researching'
 }
 
 function hostOf(url: string): string {
@@ -34,8 +50,8 @@ function TraceEvent({ event }: { event: ResearchEvent }): React.JSX.Element | nu
       return (
         <TraceBlock label="Questions">
           <ol className="list-decimal space-y-1 pl-5 text-sm">
-            {event.questions.map((question) => (
-              <li key={question}>{question}</li>
+            {event.questions.map((question, index) => (
+              <li key={`${index}-${question}`}>{question}</li>
             ))}
           </ol>
         </TraceBlock>
@@ -89,12 +105,20 @@ function TraceEvent({ event }: { event: ResearchEvent }): React.JSX.Element | nu
           <p className="text-sm text-destructive">{event.message}</p>
         </TraceBlock>
       )
+    case 'review':
     case 'done':
+    case 'aborted':
       return null
   }
 }
 
-export function ResearchTrace({ run }: { run: ResearchRun }): React.JSX.Element {
+export function ResearchTrace({
+  run,
+  onAbort
+}: {
+  run: ResearchRun
+  onAbort: () => void
+}): React.JSX.Element {
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
 
@@ -111,8 +135,13 @@ export function ResearchTrace({ run }: { run: ResearchRun }): React.JSX.Element 
         {run.status === 'running' ? (
           <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
             <Spinner />
-            Researching
+            {runStatusLabel(run)}
           </span>
+        ) : null}
+        {run.status === 'running' ? (
+          <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={onAbort}>
+            Abort
+          </Button>
         ) : null}
       </header>
       <div
@@ -125,9 +154,15 @@ export function ResearchTrace({ run }: { run: ResearchRun }): React.JSX.Element 
         }}
       >
         {run.events.length === 0 ? (
-          <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Spinner />
-            Starting research
+          <div className="flex h-full items-center justify-center px-8">
+            {run.status === 'error' ? (
+              <p className="max-w-md text-center text-sm text-destructive">{run.error}</p>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Spinner />
+                Writing the questions
+              </div>
+            )}
           </div>
         ) : (
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-8 py-8">

@@ -34,5 +34,5 @@ Cite inline with a Markdown link, and use only a URL listed under the note the s
 
 Use ## headings. Bold the key names and dates on first mention."""
 
-    result = writer_llm.invoke(prompt)
+    result = writer_llm().invoke(prompt)
     return {"final_report": result.content}
