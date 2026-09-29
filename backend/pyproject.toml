@@ -14,6 +14,7 @@ dependencies = [
     "langchain-openrouter>=0.2.9",
     "langgraph>=1.2.12",
     "pydantic>=2.12.5",
+    "tavily-python>=0.8.4",
     "trafilatura>=2.2.0",
     "uvicorn>=0.54.0",
 ]

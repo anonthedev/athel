@@ -18,10 +18,11 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from langgraph.errors import GraphDrained
 from langgraph.runtime import RunControl
 from langgraph.types import Command
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 from app.graph import graph
 from app.llm import ModelSelection, reset_selection, use_selection
+from app.nodes.search import reset_tavily_key, use_tavily_key
 
 dotenv.load_dotenv()
 
@@ -58,8 +59,26 @@ def require_model(value: str) -> str:
     return value
 
 
+def require_search_engine(value: str) -> str:
+    value = value.strip().lower()
+    if value not in ("tavily", "duckduckgo"):
+        raise ValueError("Choose Tavily or DuckDuckGo")
+    return value
+
+
+def normalize_tavily_key(value: str) -> str:
+    value = value.strip()
+    if not value:
+        return ""
+    if len(value) < 8 or len(value) > 300 or any(character.isspace() for character in value):
+        raise ValueError("That isn't a Tavily API key")
+    return value
+
+
 ApiKey = Annotated[str, AfterValidator(require_api_key)]
 ModelId = Annotated[str, AfterValidator(require_model)]
+SearchEngine = Annotated[str, AfterValidator(require_search_engine)]
+TavilyKey = Annotated[str, AfterValidator(normalize_tavily_key)]
 
 
 class ResearchRequest(BaseModel):
@@ -70,6 +89,14 @@ class ResearchRequest(BaseModel):
     writer_model: ModelId
     thread_id: str = Field(min_length=1)
     max_iterations: int = Field(default=3, ge=1, le=10)
+    search_engine: SearchEngine = "duckduckgo"
+    tavily_api_key: TavilyKey = ""
+
+    @model_validator(mode="after")
+    def tavily_needs_a_key(self):
+        if self.search_engine == "tavily" and not self.tavily_api_key:
+            raise ValueError("Add a Tavily API key")
+        return self
 
 class ResumeRequest(BaseModel):
     questions: list[str] = Field(min_length=1, max_length=7)
@@ -77,6 +104,7 @@ class ResumeRequest(BaseModel):
     planner_model: ModelId
     extractor_model: ModelId
     writer_model: ModelId
+    tavily_api_key: TavilyKey = ""
 
 class KeyCheck(BaseModel):
     api_key: ApiKey
@@ -94,7 +122,7 @@ class ReportSummary(BaseModel):
     updated_at: datetime
 
 
-def initial_state(topic: str, max_iterations: int) -> dict:
+def initial_state(topic: str, max_iterations: int, search_engine: str) -> dict:
     return {
         "topic": topic,
         "gaps": [],
@@ -106,11 +134,13 @@ def initial_state(topic: str, max_iterations: int) -> dict:
         "dead_urls": [],
         "blocked_domains": [],
         "max_iterations": max_iterations,
+        "search_engine": search_engine,
     }
 
 
 def slugify(topic: str) -> str:
-    return "".join(ch.lower() if ch.isalnum() else "-" for ch in topic).strip("-")
+    slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in topic).strip("-")
+    return slug[:40].strip("-")
 
 
 def valid_slug(slug: str) -> bool:
@@ -172,7 +202,7 @@ def publish(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue, event: dict |
     loop.call_soon_threadsafe(queue.put_nowait, event)
 
 
-def drive(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue, chunks, api_key: str) -> str | None:
+def drive(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue, chunks, api_key: str, tavily_api_key: str = "") -> str | None:
     report = ""
     try:
         for chunk in chunks:
@@ -187,15 +217,16 @@ def drive(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue, chunks, api_key
         publish(loop, queue, {"type": "aborted"})
         return None
     except Exception as exc:
-        publish(loop, queue, {"type": "error", "message": public_error(exc, api_key)})
+        publish(loop, queue, {"type": "error", "message": public_error(exc, api_key, tavily_api_key)})
         return None
     return report
 
 
-def public_error(exc: Exception, api_key: str) -> str:
+def public_error(exc: Exception, *secrets: str) -> str:
     message = str(exc).strip() or "Research failed"
-    if api_key:
-        message = message.replace(api_key, "[redacted]")
+    for secret in secrets:
+        if secret:
+            message = message.replace(secret, "[redacted]")
     return message[:500]
 
 
@@ -350,24 +381,27 @@ async def research(body: ResearchRequest, request: Request):
             extractor=body.extractor_model,
             writer=body.writer_model
         ))
+        tavily_token = use_tavily_key(body.tavily_api_key)
         try:
             report = drive(
                 loop,
                 queue,
                 graph.stream(
-                    initial_state(body.topic, body.max_iterations),
+                    initial_state(body.topic, body.max_iterations, body.search_engine),
                     config=config,
                     control=control,
                 ),
                 body.api_key,
+                body.tavily_api_key,
             )
             try:
                 finish_stream(loop, queue, body.thread_id, report, body.topic)
             except Exception as exc:
-                publish(loop, queue, {"type": "error", "message": public_error(exc, body.api_key)})
+                publish(loop, queue, {"type": "error", "message": public_error(exc, body.api_key, body.tavily_api_key)})
         finally:
             end_run(body.thread_id, control)
             reset_selection(token)
+            reset_tavily_key(tavily_token)
             publish(loop, queue, None)
 
     threading.Thread(target=run, daemon=True).start()
@@ -384,6 +418,8 @@ async def resume_research(thread_id: str, body: ResumeRequest, request: Request)
     questions = [question.strip() for question in body.questions if question.strip()][:7]
     if not questions:
         raise HTTPException(status_code=422, detail="Add at least one question")
+    if snapshot.values.get("search_engine") == "tavily" and not body.tavily_api_key:
+        raise HTTPException(status_code=422, detail="Add a Tavily API key")
 
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
@@ -396,12 +432,14 @@ async def resume_research(thread_id: str, body: ResumeRequest, request: Request)
             extractor=body.extractor_model,
             writer=body.writer_model
         ))
+        tavily_token = use_tavily_key(body.tavily_api_key)
         try:
             report = drive(
                 loop,
                 queue,
                 graph.stream(Command(resume={"questions": questions}), config=config, control=control),
                 body.api_key,
+                body.tavily_api_key,
             )
             try:
                 if report is not None and not run_aborted(thread_id):
@@ -416,10 +454,11 @@ async def resume_research(thread_id: str, body: ResumeRequest, request: Request)
                     else:
                         finish_stream(loop, queue, thread_id, report, topic)
             except Exception as exc:
-                publish(loop, queue, {"type": "error", "message": public_error(exc, body.api_key)})
+                publish(loop, queue, {"type": "error", "message": public_error(exc, body.api_key, body.tavily_api_key)})
         finally:
             end_run(thread_id, control)
             reset_selection(token)
+            reset_tavily_key(tavily_token)
             publish(loop, queue, None)
 
     threading.Thread(target=run, daemon=True).start()

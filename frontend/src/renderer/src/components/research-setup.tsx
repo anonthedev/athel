@@ -8,8 +8,10 @@ import {
   ComboboxItem,
   ComboboxList
 } from '@/components/ui/combobox'
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -27,7 +29,7 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { ApiError, checkOpenRouterKey, type OpenRouterModel } from '@/lib/api'
-import type { ModelChoice } from '@/lib/settings'
+import { hasTavilyKey, type ModelChoice, type SearchEngine } from '@/lib/settings'
 
 type KeyStatus = 'idle' | 'checking' | 'accepted' | 'rejected' | 'invalid' | 'unreachable'
 
@@ -42,6 +44,10 @@ type ResearchOptionsProps = KeyProps & {
   onModelsChange: (models: ModelChoice) => void
   maxIterations: number
   onMaxIterationsChange: (value: number) => void
+  searchEngine: SearchEngine
+  onSearchEngineChange: (value: SearchEngine) => void
+  tavilyKey: string
+  onTavilyKeyChange: (value: string) => void
   catalog: OpenRouterModel[]
   catalogError: string | null
 }
@@ -180,6 +186,71 @@ function ApiKeyField({
   )
 }
 
+function TavilyKeyField({
+  id,
+  value,
+  onChange,
+  onCommit,
+  autoFocus = false
+}: {
+  id: string
+  value: string
+  onChange: (value: string) => void
+  onCommit?: (value: string) => void
+  autoFocus?: boolean
+}): React.JSX.Element {
+  const [visible, setVisible] = useState(false)
+  const invalid = value.trim().length > 0 && (value.trim().length < 8 || /\s/u.test(value))
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">
+          Tavily API key
+        </Label>
+        <a
+          href="https://app.tavily.com"
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        >
+          Get a key
+        </a>
+      </div>
+      <div className="relative">
+        <Input
+          id={id}
+          value={value}
+          type={visible ? 'text' : 'password'}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="tvly-..."
+          aria-invalid={invalid}
+          className="pr-8"
+          autoFocus={autoFocus}
+          onChange={(event) => onChange(event.target.value)}
+          onBlur={(event) => {
+            const next = event.currentTarget.value.trim()
+            onChange(next)
+            onCommit?.(next)
+          }}
+        />
+        <button
+          type="button"
+          aria-label={visible ? 'Hide Tavily API key' : 'Show Tavily API key'}
+          className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+          onClick={() => setVisible((current) => !current)}
+        >
+          {visible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+        </button>
+      </div>
+      <p className={invalid ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+        {invalid ? "That isn't a Tavily API key" : 'Saved on this computer and sent only to the local server.'}
+      </p>
+    </div>
+  )
+}
+
 export function ApiKeyPrompt(props: KeyProps): React.JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-8 py-8">
@@ -264,9 +335,15 @@ export function ResearchOptions({
   onModelsChange,
   maxIterations,
   onMaxIterationsChange,
+  searchEngine,
+  onSearchEngineChange,
+  tavilyKey,
+  onTavilyKeyChange,
   catalog,
   catalogError
 }: ResearchOptionsProps): React.JSX.Element {
+  const [askForTavily, setAskForTavily] = useState(false)
+  const [draftTavilyKey, setDraftTavilyKey] = useState('')
   const plannerModels = useMemo(
     () => choicesFor(catalog, models.planner, true),
     [catalog, models.planner]
@@ -325,6 +402,31 @@ export function ResearchOptions({
           </DialogContent>
         </Dialog>
         <Select
+          value={searchEngine}
+          onValueChange={(value) => {
+            if (value === 'duckduckgo') {
+              onSearchEngineChange('duckduckgo')
+              return
+            }
+            if (value !== 'tavily') return
+            if (hasTavilyKey(tavilyKey)) {
+              onSearchEngineChange('tavily')
+              return
+            }
+            setDraftTavilyKey('')
+            setAskForTavily(true)
+          }}
+        >
+          <SelectTrigger size="sm" aria-label="Search engine" className="max-w-44 cursor-pointer hover:bg-muted">
+            <span className="text-muted-foreground">Search</span>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent side="top" align="start">
+            <SelectItem value="tavily">Tavily</SelectItem>
+            <SelectItem value="duckduckgo">DuckDuckGo</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
           value={String(maxIterations)}
           onValueChange={(value) => {
             const parsed = Number(value)
@@ -349,17 +451,50 @@ export function ResearchOptions({
         <Popover>
           <PopoverTrigger
             type="button"
-            aria-label="Change API key"
+            aria-label="Change API keys"
             className="inline-flex size-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer dark:bg-muted/70"
           >
             <KeyRound className="size-3.5" />
           </PopoverTrigger>
-          <PopoverContent side="top" align="start" className="w-80">
+          <PopoverContent side="top" align="start" className="flex w-80 flex-col gap-4">
             <ApiKeyField apiKey={apiKey} onApiKeyChange={onApiKeyChange} status={status} />
+            <TavilyKeyField
+              id="tavily-key-settings"
+              value={tavilyKey}
+              onChange={onTavilyKeyChange}
+              onCommit={(next) => {
+                if (!hasTavilyKey(next) && searchEngine === 'tavily') onSearchEngineChange('duckduckgo')
+              }}
+            />
           </PopoverContent>
         </Popover>
       </div>
       {catalogError ? <p className="text-xs text-destructive">{catalogError}</p> : null}
+      <Dialog open={askForTavily} onOpenChange={setAskForTavily}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add a Tavily key</DialogTitle>
+            <DialogDescription>
+              Tavily searches the web for this run. The key stays on this computer.
+            </DialogDescription>
+          </DialogHeader>
+          <TavilyKeyField id="tavily-key-prompt" value={draftTavilyKey} onChange={setDraftTavilyKey} autoFocus />
+          <div className="flex justify-end gap-2">
+            <DialogClose render={<Button type="button" variant="outline" />}>Not now</DialogClose>
+            <Button
+              type="button"
+              disabled={draftTavilyKey.trim().length < 8 || /\s/u.test(draftTavilyKey)}
+              onClick={() => {
+                onTavilyKeyChange(draftTavilyKey.trim())
+                onSearchEngineChange('tavily')
+                setAskForTavily(false)
+              }}
+            >
+              Use Tavily
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

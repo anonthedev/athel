@@ -8,14 +8,14 @@ def generate_gaps(state: OverallState):
     class GapList(BaseModel):
         questions: list[str]
 
-    prompt = f"""Break this research topic into 5 to 7 sub-questions that must be answered to write a comprehensive report.
+    prompt = f"""Split this topic into 5 to 7 questions that together cover it.
 
-                Each question should cover a distinct part of the topic, such as origins, key turning points, major contributors, how it works, applications, or limitations.
-                Make each question specific enough that a web search could answer it.
-                Do not write search keywords. Write the question itself.
+Stay inside what was asked. A question about history, famous people, ethics, or applications belongs here only when the topic asks for it.
+Each question covers a different part. A review, a study, or a primary page should be able to answer it.
+Write the question itself, not search keywords.
 
-                Topic:
-                {state["topic"]}"""
+Topic:
+{state["topic"]}"""
 
     result = planner_llm().with_structured_output(GapList).invoke(prompt)
     return {
@@ -29,8 +29,12 @@ def fan_out_gaps(state: OverallState):
     pending = [gap for gap in state["gaps"] if gap.status == "pending" and gap.attempts < state["max_iterations"]]
     blocked = list(dict.fromkeys(state.get("blocked_domains", [])))
     if pending:
+        engine = state.get("search_engine", "tavily")
         return [
-            Send("draft_queries", {"gap": gap.model_dump(), "blocked_domains": blocked})
+            Send(
+                "draft_queries",
+                {"gap": gap.model_dump(), "blocked_domains": blocked, "search_engine": engine},
+            )
             for gap in pending
         ]
 
@@ -73,22 +77,26 @@ def draft_queries(state: dict) -> Command:
         known = "\n".join(f"- {note.note}" for note in gap.notes)
         needed = "\n".join(f"- {part}" for part in gap.missing)
         prompt = (
-            "Write 2 or 3 short web search queries for only the unanswered parts.\n"
-            "Do not write queries for facts already collected.\n\n"
+            "Write 2 or 3 short web search queries that look up only the missing facts below.\n"
+            "Use the names, dates, and terms in those facts. A query is a few search words, not a sentence.\n"
+            "Do not search for facts already collected. Do not repeat the original question.\n\n"
             f"Question:\n{gap.question}\n\n"
             f"Already collected:\n{known}\n\n"
-            f"Still unanswered:\n{needed}"
+            f"Still needed:\n{needed}"
         )
         
     else:
         prompt = (
-            "Write 3 or 4 short web search queries that would answer this question.\n\n"
+            "Write 3 or 4 short web search queries that would find a specific source for this question.\n"
+            "Use the distinctive terms. Include one query aimed at a review or the named study when the question has one.\n"
+            "A query is a few search words, not the question rewritten as a sentence.\n\n"
             f"Question:\n{gap.question}"
         )
 
     result = planner_llm().with_structured_output(QueryList).invoke(prompt)
 
     blocked = state.get("blocked_domains", []) if isinstance(state, dict) else []
+    engine = state.get("search_engine", "tavily") if isinstance(state, dict) else "tavily"
 
     question = gap.question
     if gap.missing:
@@ -103,6 +111,7 @@ def draft_queries(state: dict) -> Command:
                     "question": question,
                     "query": query,
                     "blocked_domains": blocked,
+                    "search_engine": engine,
                 },
             )
             for query in result.queries[:4]
@@ -143,9 +152,13 @@ def update_checklist(state: OverallState) -> Command:
         if gap.notes:
             listed = "\n".join(f"- {note.note}\n  source: {note.source}" for note in gap.notes)
             result = planner_llm().with_structured_output(MissingList).invoke(
-                "List only requirements the question already names that no note answers.\n"
-                "Restate that requirement. Do not write a new question or a related issue.\n"
-                "Return an empty list when the notes answer the question.\n\n"
+                "List what this question still lacks. Return at most 4 items, shortest first.\n"
+                "Each item is one lookup of ten words or fewer. Name the missing study, number, date, or mechanism. Do not write a new essay question.\n\n"
+                "Put first any part the question already names that no note answers.\n"
+                "A clinic page, a marketing page, or a quiz does not answer a part. A number with no study does not answer a part.\n\n"
+                "Then add at most 3 new items the notes make necessary, still inside the 4-item cap: a figure with no study, a mechanism with no name, or two notes that disagree and neither names who measured it.\n"
+                "Do not add history, ethics, or famous people unless the question asks for them.\n\n"
+                "Return an empty list when the notes answer the question with claims that say who reported them, and no specific fact is still missing.\n\n"
                 f"Question:\n{gap.question}\n\nNotes:\n{listed}"
             )
 

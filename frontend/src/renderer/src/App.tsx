@@ -65,6 +65,8 @@ function App(): React.JSX.Element {
   const [apiKey, setApiKey] = useState(() => readSettings().apiKey)
   const [models, setModels] = useState(() => readSettings().models)
   const [maxIterations, setMaxIterations] = useState(() => readSettings().maxIterations)
+  const [searchEngine, setSearchEngine] = useState(() => readSettings().searchEngine)
+  const [tavilyKey, setTavilyKey] = useState(() => readSettings().tavilyKey)
   const [catalog, setCatalog] = useState<OpenRouterModel[]>([])
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [keyRejected, setKeyRejected] = useState(false)
@@ -84,8 +86,8 @@ function App(): React.JSX.Element {
   }
 
   useEffect(() => {
-    writeSettings({ apiKey, models, maxIterations })
-  }, [apiKey, models, maxIterations])
+    writeSettings({ apiKey, models, maxIterations, searchEngine, tavilyKey })
+  }, [apiKey, models, maxIterations, searchEngine, tavilyKey])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -255,7 +257,7 @@ function App(): React.JSX.Element {
       try {
         await startResearch(
           nextTopic,
-          { apiKey: nextKey, models, threadId: id, maxIterations },
+          { apiKey: nextKey, models, tavilyKey, threadId: id, maxIterations, searchEngine },
           (researchEvent) => {
             applyEvent(id, researchEvent, report, paused)
           },
@@ -298,7 +300,7 @@ function App(): React.JSX.Element {
       const paused = { value: false }
       const signal = bindRun(id)
       try {
-        await resumeResearch(id, questions, { apiKey: nextKey, models }, (researchEvent) => {
+        await resumeResearch(id, questions, { apiKey: nextKey, models, tavilyKey }, (researchEvent) => {
           applyEvent(id, researchEvent, report, paused)
         }, signal)
       } catch (cause: unknown) {
@@ -468,6 +470,10 @@ function App(): React.JSX.Element {
                     onModelsChange={setModels}
                     maxIterations={maxIterations}
                     onMaxIterationsChange={setMaxIterations}
+                    searchEngine={searchEngine}
+                    onSearchEngineChange={setSearchEngine}
+                    tavilyKey={tavilyKey}
+                    onTavilyKeyChange={setTavilyKey}
                     catalog={catalog}
                     catalogError={catalogError}
                   />

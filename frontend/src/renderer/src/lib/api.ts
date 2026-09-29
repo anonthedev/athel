@@ -1,4 +1,4 @@
-import type { ModelChoice } from '@/lib/settings'
+import type { ModelChoice, SearchEngine } from '@/lib/settings'
 
 const API = 'http://127.0.0.1:8000'
 
@@ -49,13 +49,15 @@ export type ResearchEvent =
 type ResearchAuth = {
   apiKey: string
   models: ModelChoice
+  tavilyKey: string
 }
 
 export function slugify(topic: string): string {
-  return Array.from(topic)
+  const slug = Array.from(topic)
     .map((character) => (/^[\p{L}\p{N}]$/u.test(character) ? character.toLowerCase() : '-'))
     .join('')
     .replace(/^-+|-+$/gu, '')
+  return Array.from(slug).slice(0, 40).join('').replace(/-+$/u, '')
 }
 
 export async function listReports(signal?: AbortSignal): Promise<ReportSummary[]> {
@@ -93,7 +95,8 @@ function researchBody(options: ResearchAuth): Record<string, string> {
     api_key: options.apiKey,
     planner_model: options.models.planner,
     extractor_model: options.models.extractor,
-    writer_model: options.models.writer
+    writer_model: options.models.writer,
+    tavily_api_key: options.tavilyKey
   }
 }
 
@@ -143,7 +146,7 @@ async function postResearch(
 
 export async function startResearch(
   topic: string,
-  options: ResearchAuth & { threadId: string; maxIterations: number },
+  options: ResearchAuth & { threadId: string; maxIterations: number; searchEngine: SearchEngine },
   onEvent: (event: ResearchEvent) => void,
   signal?: AbortSignal
 ): Promise<void> {
@@ -153,6 +156,7 @@ export async function startResearch(
       topic,
       thread_id: options.threadId,
       max_iterations: options.maxIterations,
+      search_engine: options.searchEngine,
       ...researchBody(options)
     },
     onEvent,

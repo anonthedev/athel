@@ -50,7 +50,7 @@ flowchart TD
   API --> Graph["LangGraph"]
   Graph --> Gaps["generate_gaps"]
   Gaps --> Draft["draft_queries"]
-  Draft --> Search["search (DuckDuckGo)"]
+  Draft --> Search["search (Tavily or DuckDuckGo)"]
   Search --> Hits["collect_hits"]
   Hits --> Scrape["scrape (trafilatura + extractor)"]
   Scrape --> Check["update_checklist"]
@@ -146,7 +146,7 @@ pnpm build:linux   # or build:win / build:mac
 3. When the stream finishes, the Markdown report opens and the run is filed under **Reports**.
 4. Earlier reports load from disk. On startup the most recently updated report opens automatically.
 
-Report filenames are a slug of the topic (`backend/reports/<slug>.md`). Asking the same topic again overwrites that file.
+Report filenames use the first 40 characters of the topic slug (`backend/reports/<slug>.md`). Asking the same topic again overwrites that file.
 
 ## HTTP API
 
@@ -155,7 +155,7 @@ Report filenames are a slug of the topic (`backend/reports/<slug>.md`). Asking t
 | `GET` | `/health` | `{ "status": "ok" }` |
 | `GET` | `/models` | OpenRouter catalog: `{ id, name, tools }`. `tools` is true when the model can fill the planner or extractor role |
 | `POST` | `/openrouter/key` | Checks a key. Body: `{ "api_key": "..." }`. `{ "ok": true }`, or 401 if OpenRouter rejects it |
-| `POST` | `/research` | SSE stream. Body: `{ "topic", "api_key", "planner_model", "extractor_model", "writer_model" }` |
+| `POST` | `/research` | SSE stream. Body: `{ "topic", "api_key", "planner_model", "extractor_model", "writer_model", "search_engine" }`. `search_engine` is `tavily` or `duckduckgo` |
 | `GET` | `/reports` | JSON list of `{ slug, title, updated_at }`, newest first |
 | `GET` | `/reports/{slug}` | Raw Markdown |
 

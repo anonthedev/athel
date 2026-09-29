@@ -1,3 +1,5 @@
+from contextvars import ContextVar, Token
+
 from app.states import OverallState, UrlHit, Finding
 from app.llm import extractor_llm
 from pydantic import BaseModel
@@ -5,18 +7,51 @@ from langgraph.types import Send
 from trafilatura import fetch_url, extract
 from ddgs import DDGS
 from ddgs.exceptions import DDGSException
+from tavily import TavilyClient
 from urllib.parse import urlparse
+
+_tavily_key: ContextVar[str] = ContextVar("tavily_api_key", default="")
+
+
+def use_tavily_key(api_key: str) -> Token:
+    return _tavily_key.set(api_key.strip())
+
+
+def reset_tavily_key(token: Token) -> None:
+    _tavily_key.reset(token)
+
 
 def host_of(url: str) -> str:
     return urlparse(url).netloc.lower().removeprefix("www.")
 
-def search(state: dict) -> dict:
+def duckduckgo_urls(query: str) -> list[str]:
     try:
-        found = list(DDGS().text(state["query"], max_results=5))
+        found = list(DDGS().text(query, max_results=5))
     except DDGSException:
         found = []
-    urls = list(dict.fromkeys(hit["href"] for hit in found))[:5]
+    return list(dict.fromkeys(hit["href"] for hit in found if hit.get("href")))[:5]
+
+def tavily_urls(query: str, blocked: set[str]) -> list[str]:
+    api_key = _tavily_key.get()
+    if not api_key:
+        raise RuntimeError("Add a Tavily API key")
+    response = TavilyClient(api_key=api_key).search(
+        query=query,
+        search_depth="advanced",
+        max_results=5,
+        include_answer=False,
+        exclude_domains=sorted(blocked)[:150],
+    )
+    found = response.get("results", []) if isinstance(response, dict) else []
+    urls = [item["url"] for item in found if isinstance(item, dict) and isinstance(item.get("url"), str)]
+    return list(dict.fromkeys(urls))[:5]
+
+def search(state: dict) -> dict:
     blocked = set(state.get("blocked_domains", []))
+    if state.get("search_engine") == "duckduckgo":
+        urls = duckduckgo_urls(state["query"])
+    else:
+        urls = tavily_urls(state["query"], blocked)
     urls = [url for url in urls if host_of(url) not in blocked]
 
     return {
@@ -43,17 +78,15 @@ def scrape(state: dict) -> dict:
         return {"findings": []}
         
     result = extractor_llm().with_structured_output(PageResult, include_raw=True).invoke(
-        f"""Read this page and decide if it answers the question.
+        f"""Keep only claims from this page that bear on the question.
 Question:
 {state["question"]}
 Rules:
-- If it answers the question, set answers_gap to true and put only the relevant facts, names, and dates in note.
-- If it does not answer the question but contains useful facts about the broader topic, set answers_gap to false, leave note empty, and put those facts in additional.
-- If the page states facts that address any part of the question, set answers_gap to true and put only those facts in note.
-- A partial answer is still true. Do not require the page to cover the whole question.
-- If it does not address the question but has useful facts on the broader topic, set answers_gap to false, leave note empty, and put those facts in additional.
-- If it is navigation, ads, or unrelated, set answers_gap to false and leave both note and additional empty.
-- Keep note and additional under 200 words.
+- A claim states the fact and, when the page gives them, who reported it, the year, and the sample or method. "4.4%" is incomplete when the page says who measured it and how.
+- If any claim addresses the question, set answers_gap to true and put those claims in note. A partial answer is still true.
+- If the page does not address the question but names a study or mechanism on this same subject, set answers_gap to false, leave note empty, and put those claims in additional.
+- If the page is a quiz, symptom checker, ad, forum, AI encyclopedia, or about something else, set answers_gap to false and leave both fields empty.
+- At most 8 claims. Each claim is one or two sentences.
 Page:
 {text[:12000]}"""
     )
