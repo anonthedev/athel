@@ -2,6 +2,7 @@ const keyStorage = 'deep-research.openrouter-api-key'
 const plannerStorage = 'deep-research.planner-model'
 const extractorStorage = 'deep-research.extractor-model'
 const writerStorage = 'deep-research.writer-model'
+const iterationsStorage = 'deep-research.max-iterations'
 
 export const defaultModels = {
   planner: 'openai/gpt-5-mini',
@@ -18,6 +19,7 @@ export type ModelChoice = {
 export type ResearchSettings = {
   apiKey: string
   models: ModelChoice
+  maxIterations: number
 }
 
 function readItem(key: string): string {
@@ -28,6 +30,12 @@ function readItem(key: string): string {
   }
 }
 
+function readIterations(): number {
+  const parsed = Number(readItem(iterationsStorage))
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10) return 3
+  return parsed
+}
+
 export function readSettings(): ResearchSettings {
   return {
     apiKey: readItem(keyStorage),
@@ -35,7 +43,8 @@ export function readSettings(): ResearchSettings {
       planner: readItem(plannerStorage) || defaultModels.planner,
       extractor: readItem(extractorStorage) || defaultModels.extractor,
       writer: readItem(writerStorage) || defaultModels.writer
-    }
+    },
+    maxIterations: readIterations()
   }
 }
 
@@ -45,6 +54,7 @@ export function writeSettings(settings: ResearchSettings): void {
     localStorage.setItem(plannerStorage, settings.models.planner)
     localStorage.setItem(extractorStorage, settings.models.extractor)
     localStorage.setItem(writerStorage, settings.models.writer)
+    localStorage.setItem(iterationsStorage, String(settings.maxIterations))
   } catch {
     // The desktop window can still run this session if storage is blocked.
   }

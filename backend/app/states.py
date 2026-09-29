@@ -36,3 +36,4 @@ class OverallState(TypedDict):
     final_report: str
     dead_urls: Annotated[list[str], operator.add]
     blocked_domains: Annotated[list[str], operator.add]
+    max_iterations: int

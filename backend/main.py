@@ -47,7 +47,7 @@ _runs_lock = threading.Lock()
 def require_api_key(value: str) -> str:
     value = value.strip()
     if len(value) < 8 or len(value) > 300 or any(character.isspace() for character in value):
-        raise ValueError("Enter an OpenRouter API key")
+        raise ValueError("That isn't an OpenRouter API key")
     return value
 
 
@@ -69,6 +69,7 @@ class ResearchRequest(BaseModel):
     extractor_model: ModelId
     writer_model: ModelId
     thread_id: str = Field(min_length=1)
+    max_iterations: int = Field(default=3, ge=1, le=10)
 
 class ResumeRequest(BaseModel):
     questions: list[str] = Field(min_length=1, max_length=7)
@@ -93,7 +94,7 @@ class ReportSummary(BaseModel):
     updated_at: datetime
 
 
-def initial_state(topic: str) -> dict:
+def initial_state(topic: str, max_iterations: int) -> dict:
     return {
         "topic": topic,
         "gaps": [],
@@ -104,6 +105,7 @@ def initial_state(topic: str) -> dict:
         "hits": [],
         "dead_urls": [],
         "blocked_domains": [],
+        "max_iterations": max_iterations,
     }
 
 
@@ -352,7 +354,11 @@ async def research(body: ResearchRequest, request: Request):
             report = drive(
                 loop,
                 queue,
-                graph.stream(initial_state(body.topic), config=config, control=control),
+                graph.stream(
+                    initial_state(body.topic, body.max_iterations),
+                    config=config,
+                    control=control,
+                ),
                 body.api_key,
             )
             try:

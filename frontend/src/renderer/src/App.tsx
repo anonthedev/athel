@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Moon, Plus, Sun } from 'lucide-react'
+import { Folder, Moon, Plus, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -7,7 +7,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { MarkdownReport } from '@/components/markdown-report'
 import { QuestionReview } from '@/components/question-review'
-import { ResearchSetup } from '@/components/research-setup'
+import { ApiKeyPrompt, ResearchOptions, useApiKeyStatus } from '@/components/research-setup'
 import { ResearchTrace, runStatusLabel, type DraftQuestion, type ResearchRun } from '@/components/research-trace'
 import {
   abortResearch,
@@ -64,9 +64,12 @@ function App(): React.JSX.Element {
   const [theme, setTheme] = useState<Theme>(readTheme)
   const [apiKey, setApiKey] = useState(() => readSettings().apiKey)
   const [models, setModels] = useState(() => readSettings().models)
+  const [maxIterations, setMaxIterations] = useState(() => readSettings().maxIterations)
   const [catalog, setCatalog] = useState<OpenRouterModel[]>([])
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [keyRejected, setKeyRejected] = useState(false)
+  const keyStatus = useApiKeyStatus(apiKey, setKeyRejected)
+  const keyReady = keyStatus === 'accepted'
   const screenRef = useRef<Screen>({ type: 'compose' })
   const continuing = useRef(new Set<string>())
   const runAbort = useRef(new Map<string, AbortController>())
@@ -81,8 +84,8 @@ function App(): React.JSX.Element {
   }
 
   useEffect(() => {
-    writeSettings({ apiKey, models })
-  }, [apiKey, models])
+    writeSettings({ apiKey, models, maxIterations })
+  }, [apiKey, models, maxIterations])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -250,9 +253,14 @@ function App(): React.JSX.Element {
       const paused = { value: false }
       const signal = bindRun(id)
       try {
-        await startResearch(nextTopic, { apiKey: nextKey, models, threadId: id }, (researchEvent) => {
-          applyEvent(id, researchEvent, report, paused)
-        }, signal)
+        await startResearch(
+          nextTopic,
+          { apiKey: nextKey, models, threadId: id, maxIterations },
+          (researchEvent) => {
+            applyEvent(id, researchEvent, report, paused)
+          },
+          signal
+        )
         if (abortedRuns.current.has(id) || paused.value) return
         await openFinishedReport(id, nextTopic, report.markdown)
       } catch (cause: unknown) {
@@ -367,7 +375,17 @@ function App(): React.JSX.Element {
               </div>
             ))}
 
-            <div className="px-2.5 pt-3 pb-1 text-xs font-medium text-muted-foreground">Reports</div>
+            <div className="flex items-center justify-between px-2.5 pt-3 pb-1">
+              <span className="text-xs font-medium text-muted-foreground">Reports</span>
+              <button
+                type="button"
+                aria-label="Open reports folder"
+                className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                onClick={() => void window.api.openReportsFolder()}
+              >
+                <Folder className="size-3.5" />
+              </button>
+            </div>
             {loadingList ? (
               <div className="flex items-center gap-2 px-2.5 py-3 text-sm text-muted-foreground">
                 <Spinner />
@@ -413,7 +431,11 @@ function App(): React.JSX.Element {
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {screen.type === 'compose' ? (
+        {screen.type === 'compose' && !keyReady ? (
+          <ApiKeyPrompt apiKey={apiKey} onApiKeyChange={setApiKey} status={keyStatus} />
+        ) : null}
+
+        {screen.type === 'compose' && keyReady ? (
           <form className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-8 py-8" onSubmit={onSubmit}>
             <div className="my-auto flex w-full max-w-xl flex-col items-center gap-8">
               <div className="flex flex-col gap-2 text-center">
@@ -422,18 +444,7 @@ function App(): React.JSX.Element {
                   Ask one question. You can edit the research questions before the search starts.
                 </p>
               </div>
-              <div className="w-full rounded-2xl border bg-card shadow-sm transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/40">
-                <div className="border-b px-4 py-4">
-                  <ResearchSetup
-                    apiKey={apiKey}
-                    onApiKeyChange={setApiKey}
-                    models={models}
-                    onModelsChange={setModels}
-                    catalog={catalog}
-                    catalogError={catalogError}
-                    onKeyRejectedChange={setKeyRejected}
-                  />
-                </div>
+              <div className="w-full overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/40">
                 <Textarea
                   autoFocus
                   value={topic}
@@ -448,25 +459,36 @@ function App(): React.JSX.Element {
                     }
                   }}
                 />
-                <div className="flex items-center justify-between gap-3 bg-card px-3 pb-3">
-                  <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    <Kbd className="border border-border bg-transparent dark:bg-transparent">{submitHint}</Kbd>
-                    <Kbd className="border border-border bg-transparent dark:bg-transparent">Enter</Kbd>
-                  </p>
-                  <Button
-                    type="submit"
-                    className="disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:disabled:bg-transparent"
-                    disabled={
-                      topic.trim().length === 0 ||
-                      apiKey.trim().length < 8 ||
-                      keyRejected ||
-                      !models.planner ||
-                      !models.extractor ||
-                      !models.writer
-                    }
-                  >
-                    Research
-                  </Button>
+                <div className="flex flex-wrap items-end justify-between gap-3 bg-card px-3 pb-3">
+                  <ResearchOptions
+                    apiKey={apiKey}
+                    onApiKeyChange={setApiKey}
+                    status={keyStatus}
+                    models={models}
+                    onModelsChange={setModels}
+                    maxIterations={maxIterations}
+                    onMaxIterationsChange={setMaxIterations}
+                    catalog={catalog}
+                    catalogError={catalogError}
+                  />
+                  <div className="ml-auto flex items-center gap-3">
+                    <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <Kbd className="border border-border bg-transparent dark:bg-transparent">{submitHint}</Kbd>
+                      <Kbd className="border border-border bg-transparent dark:bg-transparent">Enter</Kbd>
+                    </p>
+                    <Button
+                      type="submit"
+                      className="disabled:bg-muted disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-100 dark:disabled:bg-muted cursor-pointer"
+                      disabled={
+                        topic.trim().length === 0 ||
+                        !models.planner ||
+                        !models.extractor ||
+                        !models.writer
+                      }
+                    >
+                      Research
+                    </Button>
+                  </div>
                 </div>
               </div>
               <div className="flex flex-wrap justify-center gap-2">

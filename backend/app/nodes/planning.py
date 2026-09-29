@@ -4,8 +4,6 @@ from pydantic import BaseModel
 from langgraph.types import Send, Command
 from langgraph.types import interrupt
 
-MAX_ITERATIONS = 3
-
 def generate_gaps(state: OverallState):
     class GapList(BaseModel):
         questions: list[str]
@@ -28,7 +26,7 @@ def generate_gaps(state: OverallState):
     }
 
 def fan_out_gaps(state: OverallState):
-    pending = [gap for gap in state["gaps"] if gap.status == "pending" and gap.attempts < MAX_ITERATIONS]
+    pending = [gap for gap in state["gaps"] if gap.status == "pending" and gap.attempts < state["max_iterations"]]
     blocked = list(dict.fromkeys(state.get("blocked_domains", [])))
     if pending:
         return [
@@ -158,7 +156,7 @@ def update_checklist(state: OverallState) -> Command:
             gap.status = "resolved"
         else:
             gap.attempts += 1
-            if gap.attempts >= MAX_ITERATIONS:
+            if gap.attempts >= state["max_iterations"]:
                 gap.status = "failed"
         updated.append(gap)
     return {"gaps": updated, "additional_info": extras}

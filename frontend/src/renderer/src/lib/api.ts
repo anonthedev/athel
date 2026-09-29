@@ -143,13 +143,18 @@ async function postResearch(
 
 export async function startResearch(
   topic: string,
-  options: ResearchAuth & { threadId: string },
+  options: ResearchAuth & { threadId: string; maxIterations: number },
   onEvent: (event: ResearchEvent) => void,
   signal?: AbortSignal
 ): Promise<void> {
   await postResearch(
     '/research',
-    { topic, thread_id: options.threadId, ...researchBody(options) },
+    {
+      topic,
+      thread_id: options.threadId,
+      max_iterations: options.maxIterations,
+      ...researchBody(options)
+    },
     onEvent,
     signal
   )

@@ -1,8 +1,9 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { mkdirSync } from 'fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { startBackend, stopBackend } from './backend'
+import { reportsDirectory, startBackend, stopBackend } from './backend'
 
 function createWindow(): void {
   // Create the browser window.
@@ -50,8 +51,12 @@ app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+  ipcMain.handle('open-reports-folder', async () => {
+    const directory = reportsDirectory()
+    mkdirSync(directory, { recursive: true })
+    const error = await shell.openPath(directory)
+    if (error) throw new Error(error)
+  })
   await startBackend()
   createWindow()
 
