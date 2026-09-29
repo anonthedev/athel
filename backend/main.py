@@ -1,3 +1,5 @@
+import os
+import dotenv
 import asyncio
 import json
 import re
@@ -21,6 +23,8 @@ from pydantic import AfterValidator, BaseModel, Field
 from app.graph import graph
 from app.llm import ModelSelection, reset_selection, use_selection
 
+dotenv.load_dotenv()
+
 app = FastAPI()
 
 app.add_middleware(
@@ -30,7 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-REPORTS = Path(__file__).resolve().parent / "reports"
+REPORTS = Path(os.environ.get("DEEP_RESEARCH_REPORTS", Path(__file__).resolve().parent / "reports"))
 MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}/[A-Za-z0-9][A-Za-z0-9._:@+-]{0,160}$")
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 KEY_URL = "https://openrouter.ai/api/v1/key"

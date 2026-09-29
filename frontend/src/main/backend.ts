@@ -2,6 +2,8 @@ import { app } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import { join } from 'path'
 
+const reportsDir = join(app.getPath('userData'), 'reports')
+
 const HEALTH_URL = 'http://127.0.0.1:8000/health'
 
 let backend: ChildProcess | null = null
@@ -26,18 +28,18 @@ async function waitUntilHealthy(): Promise<void> {
 export async function startBackend(): Promise<void> {
   if (await isHealthy()) return
 
-  const cwd = join(app.getAppPath(), '..', 'backend')
-  const python = join(cwd, '.venv', 'bin', 'python')
-
-  backend = spawn(
-    python,
-    ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000', '--reload'],
-    { cwd, stdio: 'inherit' }
-  )
-
-  backend.on('error', (error) => {
-    console.error(error)
-  })
+  if (app.isPackaged) {
+    const binary = process.platform === 'win32' ? 'server.exe' : 'server'
+    backend = spawn(join(process.resourcesPath, 'server', binary), [], {
+      env: { ...process.env, DEEP_RESEARCH_REPORTS: reportsDir },
+      stdio: 'ignore'
+    })
+  } else {
+    const cwd = join(app.getAppPath(), '..', 'backend')
+    backend = spawn(join(cwd, '.venv', 'bin', 'python'), [
+      '-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000', '--reload'
+    ], { cwd, stdio: 'inherit' })
+  }
 
   await waitUntilHealthy()
 }
