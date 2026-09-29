@@ -478,7 +478,7 @@ function App(): React.JSX.Element {
                     </p>
                     <Button
                       type="submit"
-                      className="disabled:bg-muted disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-100 dark:disabled:bg-muted cursor-pointer"
+                      className="disabled:bg-muted disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-100 dark:disabled:bg-muted cursor-pointer rounded-md"
                       disabled={
                         topic.trim().length === 0 ||
                         !models.planner ||

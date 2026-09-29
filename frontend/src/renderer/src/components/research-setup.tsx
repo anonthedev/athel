@@ -286,7 +286,7 @@ export function ResearchOptions({
         <Dialog>
           <DialogTrigger
             type="button"
-            className="cursor-pointer inline-flex h-7 items-center rounded-lg border border-border bg-background px-2.5 text-xs hover:bg-muted"
+            className="cursor-pointer inline-flex h-7 items-center rounded-md border border-border bg-background px-2.5 text-xs hover:bg-muted dark:bg-muted/70 text-muted-foreground"
           >
             Configure Models
           </DialogTrigger>
@@ -350,7 +350,7 @@ export function ResearchOptions({
           <PopoverTrigger
             type="button"
             aria-label="Change API key"
-            className="inline-flex size-7 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+            className="inline-flex size-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer dark:bg-muted/70"
           >
             <KeyRound className="size-3.5" />
           </PopoverTrigger>
