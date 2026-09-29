@@ -2,6 +2,44 @@
 
 A desktop app that turns one question into a sourced Markdown report. You ask a topic in an Electron window. A LangGraph pipeline on a local FastAPI server breaks the topic into questions, searches the web, reads pages, and writes the report. Finished reports stay on disk and show up in the sidebar.
 
+## Install
+
+Download a build from the [releases](https://github.com/anonthedev/deep-research/releases) page. `<version>` below is the release number without the leading `v`, so tag `v0.0.3` uses `0.0.3` in the filename. After the app opens, enter an OpenRouter API key. It stays on this computer.
+
+### macOS
+
+1. Download `Athel-<version>.dmg`.
+2. Move the file to `/Applications`.
+3. The build is not notarized, so macOS may refuse to open it. Clear the quarantine flag:
+
+```bash
+xattr -cr /Applications/Athel-<version>.dmg
+```
+
+4. Open the disk image and drag Athel into the Applications folder.
+5. Open Athel from Applications.
+
+### Windows
+
+1. Download `Athel-<version>-setup.exe`.
+2. Run the installer.
+3. Open Athel from the desktop shortcut or the Start menu.
+
+### Linux
+
+AppImage:
+
+```bash
+chmod +x Athel-<version>.AppImage
+./Athel-<version>.AppImage
+```
+
+Debian and Ubuntu:
+
+```bash
+sudo apt install ./athel_<version>_amd64.deb
+```
+
 ## How it works
 
 The Electron main process starts the Python backend if `http://127.0.0.1:8000/health` is not already up, then opens the React window. Submitting a topic posts to `POST /research`. The server runs the graph in a background thread and streams progress as server-sent events. When the writer finishes, the report is saved under `backend/reports/` and the window switches from the live trace to the rendered Markdown.
