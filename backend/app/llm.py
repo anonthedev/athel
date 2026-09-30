@@ -14,6 +14,7 @@ class ModelSelection:
     planner: str
     extractor: str
     writer: str
+    embedding: str
 
 
 _selection: ContextVar[ModelSelection | None] = ContextVar("model_selection", default=None)
@@ -27,7 +28,7 @@ def reset_selection(token: Token) -> None:
     _selection.reset(token)
 
 
-def _require() -> ModelSelection:
+def current_selection() -> ModelSelection:
     selection = _selection.get()
     if selection is None:
         raise RuntimeError("OpenRouter key and models were not set for this run")
@@ -35,15 +36,15 @@ def _require() -> ModelSelection:
 
 
 def planner_llm() -> ChatOpenRouter:
-    selection = _require()
+    selection = current_selection()
     return ChatOpenRouter(model=selection.planner, api_key=selection.api_key)
 
 
 def extractor_llm() -> ChatOpenRouter:
-    selection = _require()
+    selection = current_selection()
     return ChatOpenRouter(model=selection.extractor, api_key=selection.api_key)
 
 
 def writer_llm() -> ChatOpenRouter:
-    selection = _require()
+    selection = current_selection()
     return ChatOpenRouter(model=selection.writer, api_key=selection.api_key)

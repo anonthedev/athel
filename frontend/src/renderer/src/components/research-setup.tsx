@@ -50,6 +50,8 @@ type ResearchOptionsProps = KeyProps & {
   onTavilyKeyChange: (value: string) => void
   catalog: OpenRouterModel[]
   catalogError: string | null
+  embeddingCatalog: OpenRouterModel[]
+  embeddingCatalogError: string | null
 }
 
 function choicesFor(
@@ -340,7 +342,9 @@ export function ResearchOptions({
   tavilyKey,
   onTavilyKeyChange,
   catalog,
-  catalogError
+  catalogError,
+  embeddingCatalog,
+  embeddingCatalogError
 }: ResearchOptionsProps): React.JSX.Element {
   const [askForTavily, setAskForTavily] = useState(false)
   const [draftTavilyKey, setDraftTavilyKey] = useState('')
@@ -355,6 +359,10 @@ export function ResearchOptions({
   const writerModels = useMemo(
     () => choicesFor(catalog, models.writer, false),
     [catalog, models.writer]
+  )
+  const embeddingModels = useMemo(
+    () => choicesFor(embeddingCatalog, models.embedding, false),
+    [embeddingCatalog, models.embedding]
   )
 
   return (
@@ -371,7 +379,7 @@ export function ResearchOptions({
             <DialogHeader>
               <DialogTitle>Models</DialogTitle>
               <DialogDescription>
-                Choose who drafts the questions, reads the pages, and writes the report.
+                Choose who drafts the questions, reads the pages, writes the report, and ranks PDF pages.
               </DialogDescription>
             </DialogHeader>
             <ModelField
@@ -398,7 +406,16 @@ export function ResearchOptions({
               value={models.writer}
               onChange={(writer) => onModelsChange({ ...models, writer })}
             />
+            <ModelField
+              id="embedding-model"
+              label="Embedding"
+              hint="Ranks pages inside PDFs."
+              models={embeddingModels}
+              value={models.embedding}
+              onChange={(embedding) => onModelsChange({ ...models, embedding })}
+            />
             {catalogError ? <p className="text-xs text-destructive">{catalogError}</p> : null}
+            {embeddingCatalogError ? <p className="text-xs text-destructive">{embeddingCatalogError}</p> : null}
           </DialogContent>
         </Dialog>
         <Select

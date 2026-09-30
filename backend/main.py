@@ -40,6 +40,7 @@ MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}/[A-Za-z0-9][A-Za-z0-9._
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 KEY_URL = "https://openrouter.ai/api/v1/key"
 _models_cache: tuple[float, list["CatalogModel"]] | None = None
+_embedding_models_cache: tuple[float, list["CatalogModel"]] | None = None
 _runs: dict[str, RunControl] = {}
 _aborted: set[str] = set()
 _runs_lock = threading.Lock()
@@ -87,6 +88,7 @@ class ResearchRequest(BaseModel):
     planner_model: ModelId
     extractor_model: ModelId
     writer_model: ModelId
+    embedding_model: ModelId
     thread_id: str = Field(min_length=1)
     max_iterations: int = Field(default=3, ge=1, le=10)
     search_engine: SearchEngine = "duckduckgo"
@@ -104,6 +106,7 @@ class ResumeRequest(BaseModel):
     planner_model: ModelId
     extractor_model: ModelId
     writer_model: ModelId
+    embedding_model: ModelId
     tavily_api_key: TavilyKey = ""
 
 class KeyCheck(BaseModel):
@@ -280,6 +283,30 @@ def catalog_models() -> list[CatalogModel]:
     return models
 
 
+def embedding_catalog(api_key: str) -> list[CatalogModel]:
+    global _embedding_models_cache
+    cached = _embedding_models_cache
+    now = time.monotonic()
+    if cached is not None and now - cached[0] < 600:
+        return cached[1]
+
+    payload = openrouter_json("https://openrouter.ai/api/v1/embeddings/models", api_key)
+    models: list[CatalogModel] = []
+    for item in payload.get("data", []):
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id")
+        if not isinstance(model_id, str) or not MODEL_ID.fullmatch(model_id):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            name = model_id
+        models.append(CatalogModel(id=model_id, name=name.strip(), tools=False))
+    models.sort(key=lambda model: model.name.casefold())
+    _embedding_models_cache = (now, models)
+    return models
+
+
 def events_from(node: str, update: dict) -> list[dict]:
     if node == "generate_gaps":
         return [{"type": "gaps", "questions": [gap.question for gap in update["gaps"]]}]
@@ -379,7 +406,8 @@ async def research(body: ResearchRequest, request: Request):
             api_key=body.api_key,
             planner=body.planner_model,
             extractor=body.extractor_model,
-            writer=body.writer_model
+            writer=body.writer_model,
+            embedding=body.embedding_model,
         ))
         tavily_token = use_tavily_key(body.tavily_api_key)
         try:
@@ -430,7 +458,8 @@ async def resume_research(thread_id: str, body: ResumeRequest, request: Request)
             api_key=body.api_key,
             planner=body.planner_model,
             extractor=body.extractor_model,
-            writer=body.writer_model
+            writer=body.writer_model,
+            embedding=body.embedding_model,
         ))
         tavily_token = use_tavily_key(body.tavily_api_key)
         try:
@@ -501,6 +530,11 @@ def list_models() -> list[CatalogModel]:
     return catalog_models()
 
 
+@app.post("/embedding-models")
+def list_embedding_models(body: KeyCheck) -> list[CatalogModel]:
+    return embedding_catalog(body.api_key)
+
+
 @app.post("/openrouter/key")
 def check_key(body: KeyCheck):
     openrouter_json(KEY_URL, body.api_key)
@@ -521,3 +555,4 @@ async def hide_rejected_input(_request: Request, exc: RequestValidationError):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+

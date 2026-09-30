@@ -12,6 +12,7 @@ import { ResearchTrace, runStatusLabel, type DraftQuestion, type ResearchRun } f
 import {
   abortResearch,
   getReport,
+  listEmbeddingModels,
   listModels,
   listReports,
   resumeResearch,
@@ -69,6 +70,8 @@ function App(): React.JSX.Element {
   const [tavilyKey, setTavilyKey] = useState(() => readSettings().tavilyKey)
   const [catalog, setCatalog] = useState<OpenRouterModel[]>([])
   const [catalogError, setCatalogError] = useState<string | null>(null)
+  const [embeddingCatalog, setEmbeddingCatalog] = useState<OpenRouterModel[]>([])
+  const [embeddingCatalogError, setEmbeddingCatalogError] = useState<string | null>(null)
   const [keyRejected, setKeyRejected] = useState(false)
   const keyStatus = useApiKeyStatus(apiKey, setKeyRejected)
   const keyReady = keyStatus === 'accepted'
@@ -99,6 +102,21 @@ function App(): React.JSX.Element {
       })
     return () => controller.abort()
   }, [])
+
+  useEffect(() => {
+    if (!keyReady) return
+    const controller = new AbortController()
+    listEmbeddingModels(apiKey, controller.signal)
+      .then((items) => {
+        setEmbeddingCatalog(items)
+        setEmbeddingCatalogError(null)
+      })
+      .catch((cause: unknown) => {
+        if (cause instanceof DOMException && cause.name === 'AbortError') return
+        setEmbeddingCatalogError(cause instanceof Error ? cause.message : 'Could not load embedding models')
+      })
+    return () => controller.abort()
+  }, [apiKey, keyReady])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -233,7 +251,7 @@ function App(): React.JSX.Element {
     const nextTopic = topic.trim()
     const nextKey = apiKey.trim()
     if (!nextTopic || nextKey.length < 8 || keyRejected) return
-    if (!models.planner || !models.extractor || !models.writer) return
+    if (!models.planner || !models.extractor || !models.writer || !models.embedding) return
 
     const id = crypto.randomUUID()
     const run: ResearchRun = {
@@ -344,37 +362,21 @@ function App(): React.JSX.Element {
               </div>
             ) : null}
             {ongoing.map((run) => (
-              <div
+              <button
                 key={run.id}
+                type="button"
                 className={cn(
-                  'flex w-full items-start rounded-lg hover:bg-sidebar-accent',
+                  'flex w-full flex-col items-start gap-0.5 rounded-lg px-2.5 py-2 text-left hover:bg-sidebar-accent',
                   screen.type === 'trace' && screen.id === run.id && 'bg-sidebar-accent'
                 )}
+                onClick={() => go({ type: 'trace', id: run.id })}
               >
-                <button
-                  type="button"
-                  className="flex min-w-0 flex-1 flex-col items-start gap-0.5 px-2.5 py-2 text-left"
-                  onClick={() => go({ type: 'trace', id: run.id })}
-                >
-                  <span className="line-clamp-2 text-sm font-medium">{run.topic}</span>
-                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                    {run.status === 'running' ? <Spinner /> : null}
-                    {runStatusLabel(run)}
-                  </span>
-                </button>
-                {run.status === 'running' || run.status === 'review' ? (
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="xs"
-                    aria-label="Abort research"
-                    className="mt-2 mr-1.5 cursor-pointer"
-                    onClick={() => abortRun(run.id)}
-                  >
-                    Abort
-                  </Button>
-                ) : null}
-              </div>
+                <span className="line-clamp-2 text-sm font-medium">{run.topic}</span>
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {run.status === 'running' ? <Spinner /> : null}
+                  {runStatusLabel(run)}
+                </span>
+              </button>
             ))}
 
             <div className="flex items-center justify-between px-2.5 pt-3 pb-1">
@@ -476,6 +478,8 @@ function App(): React.JSX.Element {
                     onTavilyKeyChange={setTavilyKey}
                     catalog={catalog}
                     catalogError={catalogError}
+                    embeddingCatalog={embeddingCatalog}
+                    embeddingCatalogError={embeddingCatalogError}
                   />
                   <div className="ml-auto flex items-center gap-3">
                     <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
@@ -489,7 +493,8 @@ function App(): React.JSX.Element {
                         topic.trim().length === 0 ||
                         !models.planner ||
                         !models.extractor ||
-                        !models.writer
+                        !models.writer ||
+                        !models.embedding
                       }
                     >
                       Research

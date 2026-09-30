@@ -72,6 +72,19 @@ export async function getReport(slug: string, signal?: AbortSignal): Promise<str
   return response.text()
 }
 
+export async function listEmbeddingModels(apiKey: string, signal?: AbortSignal): Promise<OpenRouterModel[]> {
+  const response = await fetch(`${API}/embedding-models`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey }),
+    signal
+  })
+  if (!response.ok) {
+    throw new ApiError(response.status, await errorMessage(response, 'Could not load embedding models'))
+  }
+  return response.json() as Promise<OpenRouterModel[]>
+}
+
 export async function listModels(signal?: AbortSignal): Promise<OpenRouterModel[]> {
   const response = await fetch(`${API}/models`, { signal })
   if (!response.ok) throw new ApiError(response.status, await errorMessage(response, 'Could not load OpenRouter models'))
@@ -96,6 +109,7 @@ function researchBody(options: ResearchAuth): Record<string, string> {
     planner_model: options.models.planner,
     extractor_model: options.models.extractor,
     writer_model: options.models.writer,
+    embedding_model: options.models.embedding,
     tavily_api_key: options.tavilyKey
   }
 }

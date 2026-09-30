@@ -140,7 +140,7 @@ def update_checklist(state: OverallState) -> Command:
     for gap in state["gaps"]:
         gap = gap.model_copy(deep=True)
 
-        if gap.status in ("resolved", "failed"):
+        if gap.status in ("resolved", "partial", "failed"):
             updated.append(gap)
             continue
 
@@ -170,6 +170,6 @@ def update_checklist(state: OverallState) -> Command:
         else:
             gap.attempts += 1
             if gap.attempts >= state["max_iterations"]:
-                gap.status = "failed"
+                gap.status = "partial" if gap.notes else "failed"
         updated.append(gap)
     return {"gaps": updated, "additional_info": extras}

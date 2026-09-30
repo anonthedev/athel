@@ -9,7 +9,7 @@ class SourcedNote(BaseModel):
 class KnowledgeGap(BaseModel):
     id: int
     question: str
-    status: Literal["pending", "resolved", "failed"] = "pending"
+    status: Literal["pending", "resolved", "partial", "failed"] = "pending"
     notes: list[SourcedNote] = []
     missing: list[str] = []
     attempts: int = 0

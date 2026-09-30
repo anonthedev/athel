@@ -2,6 +2,7 @@ const keyStorage = 'deep-research.openrouter-api-key'
 const plannerStorage = 'deep-research.planner-model'
 const extractorStorage = 'deep-research.extractor-model'
 const writerStorage = 'deep-research.writer-model'
+const embeddingStorage = 'deep-research.embedding-model'
 const iterationsStorage = 'deep-research.max-iterations'
 const searchEngineStorage = 'deep-research.search-engine'
 const tavilyKeyStorage = 'deep-research.tavily-api-key'
@@ -9,13 +10,15 @@ const tavilyKeyStorage = 'deep-research.tavily-api-key'
 export const defaultModels = {
   planner: 'openai/gpt-5-mini',
   extractor: 'google/gemini-3.1-flash-lite',
-  writer: 'anthropic/claude-sonnet-5'
+  writer: 'anthropic/claude-sonnet-5',
+  embedding: 'openai/text-embedding-3-small'
 } as const
 
 export type ModelChoice = {
   planner: string
   extractor: string
   writer: string
+  embedding: string
 }
 
 export type SearchEngine = 'tavily' | 'duckduckgo'
@@ -59,7 +62,8 @@ export function readSettings(): ResearchSettings {
     models: {
       planner: readItem(plannerStorage) || defaultModels.planner,
       extractor: readItem(extractorStorage) || defaultModels.extractor,
-      writer: readItem(writerStorage) || defaultModels.writer
+      writer: readItem(writerStorage) || defaultModels.writer,
+      embedding: readItem(embeddingStorage) || defaultModels.embedding
     },
     maxIterations: readIterations(),
     searchEngine: readSearchEngine(tavilyKey),
@@ -73,6 +77,7 @@ export function writeSettings(settings: ResearchSettings): void {
     localStorage.setItem(plannerStorage, settings.models.planner)
     localStorage.setItem(extractorStorage, settings.models.extractor)
     localStorage.setItem(writerStorage, settings.models.writer)
+    localStorage.setItem(embeddingStorage, settings.models.embedding)
     localStorage.setItem(iterationsStorage, String(settings.maxIterations))
     localStorage.setItem(searchEngineStorage, settings.searchEngine)
     localStorage.setItem(tavilyKeyStorage, settings.tavilyKey)

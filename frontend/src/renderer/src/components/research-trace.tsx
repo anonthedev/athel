@@ -27,12 +27,10 @@ export function runStatusLabel(run: Pick<ResearchRun, 'status' | 'phase'>): stri
   return 'Researching'
 }
 
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname
-  } catch {
-    return url
-  }
+function gapStatusLabel(status: string): string {
+  if (status === 'resolved') return 'Resolved'
+  if (status === 'partial') return 'Partially answered'
+  return 'Failed'
 }
 
 function TraceBlock({ label, children }: { label: string; children: ReactNode }): React.JSX.Element {
@@ -71,7 +69,9 @@ function TraceEvent({ event }: { event: ResearchEvent }): React.JSX.Element | nu
     case 'finding':
       return (
         <TraceBlock label={event.answers ? 'Finding' : 'Note'}>
-          <ExternalLink href={event.source}>{hostOf(event.source)}</ExternalLink>
+          <p className="text-sm break-all">
+            <ExternalLink href={event.source}>{event.source}</ExternalLink>
+          </p>
           {event.note ? <p className="text-sm leading-6 whitespace-pre-wrap">{event.note}</p> : null}
         </TraceBlock>
       )
@@ -86,7 +86,7 @@ function TraceEvent({ event }: { event: ResearchEvent }): React.JSX.Element | nu
     case 'gap':
       if (event.status === 'pending') return null
       return (
-        <TraceBlock label={event.status === 'resolved' ? 'Resolved' : 'Failed'}>
+        <TraceBlock label={gapStatusLabel(event.status)}>
           <p className="text-sm">{event.question}</p>
           {event.missing.length > 0 ? (
             <p className="text-sm text-muted-foreground">{event.missing.join(' ')}</p>
