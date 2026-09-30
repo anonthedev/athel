@@ -47,11 +47,9 @@ def write_final_report(state: OverallState) -> dict:
         )
     extra = "\n".join(f"- {item.note}\n  source: {item.source}" for item in state["additional_info"]) or "- None."
 
-    prompt = f"""Write a specific, direct, and comprehensive research report in Markdown.
+    prompt = f"""Write a specific and comprehensive research report in Markdown. You choose the prose, the pace, and how each section is shaped. A section can be several paragraphs, a mix of prose and a list, or a tighter passage when the notes are thin.
 
-Specific: every name, date, and number stays attached to the study or page that reported it.
-Direct: a paragraph states the finding, then the evidence.
-Comprehensive: every part of the topic that the dossier covers appears once, in the section where it belongs.
+Open with an overview of the topic: what it is and the main picture the dossier supports. Then develop the body in sections that fit the topic. Close with a conclusion that draws together what the evidence shows, including important disagreements and what remained unestablished.
 
 Topic:
 {state["topic"]}
@@ -62,11 +60,11 @@ Evidence dossier:
 Additional information:
 {extra}
 
-The dossier questions are a coverage checklist, not the outline. Choose headings that fit the topic. Write one continuous report in prose. Use a bullet list only for a real set of mechanisms, types, or limits.
+The dossier questions are a coverage checklist, not the outline. Choose headings that fit the topic. The overview and the conclusion are ## headings too.
 
-State each fact once. When the same person, date, or mechanism appears under several questions, put it in the section where it belongs.
+Use the dossier. Every study, figure, comparison, and limit in the notes appears in the section where it belongs. When the same person, date, or mechanism appears under several questions, put it in the section where it belongs and do not repeat it later.
 
-Keep the concrete details from the notes: names, dates, paper titles, sample sizes, methods, organizations, and numbers. "Simner et al. 2006 found 4.4% in a Scottish sample" must not become "synesthesia is fairly common."
+Keep the concrete details from the notes: names, dates, paper titles, sample sizes, methods, organizations, and numbers. "Simner et al. 2006 found 4.4% in a Scottish sample" must not become "synesthesia is fairly common." Every name, date, and number stays attached to the study or page that reported it.
 
 Use only facts from the dossier. Do not round a date, move an event to a different year, or add a fact you were not given. When notes disagree, give the range and attach each figure to the note that states it. Do not average them. For a partially answered question, write what the notes establish and name the part that is still missing. For a failed question, which has no notes, say briefly that the research did not establish it.
 

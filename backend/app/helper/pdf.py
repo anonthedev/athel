@@ -7,7 +7,7 @@ import pymupdf
 
 PDF_BUDGET = 24_000
 SPILL = 400
-MAX_CHUNKS = 6
+MAX_CHUNKS = 12
 
 _SENTENCE_END = re.compile(r"""[.?!]["')\]]?\s*$""")
 _SENTENCE_BREAK = re.compile(r"""[.?!]["')\]]?(?=\s|$)""")

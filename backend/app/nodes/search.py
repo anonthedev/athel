@@ -136,7 +136,7 @@ Rules:
 - If any claim addresses the question, set answers_gap to true and put those claims in note. A partial answer is still true.
 - If the page does not address the question but names a study or mechanism on this same subject, set answers_gap to false, leave note empty, and put those claims in additional.
 - If the page is a quiz, symptom checker, ad, forum, AI encyclopedia, or about something else, set answers_gap to false and leave both fields empty.
-- At most 8 claims. Each claim is one or two sentences.
+- Include every claim that bears on the question, up to 20. Each claim is one or two sentences. Do not stop after a few sentences when the page reports more results, comparisons, or limits that bear on the question.
 - When the text has markers like [p.4] or [p.6-7], start each claim with that page, written as (p. 4) or (p. 6-7).
 Page:
 {text}"""
