@@ -1,6 +1,6 @@
 # Deep Research
 
-A desktop app that turns one question into a sourced Markdown report. You ask a topic in an Electron window. A LangGraph pipeline on a local FastAPI server breaks the topic into questions, searches the web, reads pages, and writes the report. Finished reports stay on disk and show up in the sidebar.
+A desktop app that turns one question into a sourced Markdown report. You ask a topic in an Electron window. A LangGraph pipeline on a local FastAPI server breaks the topic into questions, searches the web, reads HTML and PDFs, and writes the report. Finished reports stay on disk and show up in the sidebar.
 
 ## Install
 
@@ -52,8 +52,16 @@ flowchart TD
   Gaps --> Draft["draft_queries"]
   Draft --> Search["search (Tavily or DuckDuckGo)"]
   Search --> Hits["collect_hits"]
-  Hits --> Scrape["scrape (trafilatura + extractor)"]
-  Scrape --> Check["update_checklist"]
+  Hits --> Scrape["scrape"]
+  Scrape --> Fetch["download the URL"]
+  Fetch --> Kind{"response is a PDF?"}
+  Kind -->|yes| Pdf["pdf_excerpt: PyMuPDF, then rank passages"]
+  Kind -->|no| Html["trafilatura"]
+  Html --> Cite{"citation_pdf_url?"}
+  Cite -->|yes| Pdf
+  Cite -->|no| Extract["extractor"]
+  Pdf --> Extract
+  Extract --> Check["update_checklist"]
   Check -->|"pending gaps remain"| Draft
   Check -->|"nothing left to chase"| Write["write_final_report"]
   Write --> Disk["backend/reports/*.md"]
@@ -62,19 +70,22 @@ flowchart TD
 
 Each pass fans out. Pending gaps are drafted in parallel, each query is searched in parallel, and each new URL is scraped in parallel. `collect_hits` and `update_checklist` are deferred nodes: they wait until every branch of that wave has finished before the graph continues.
 
+A download whose bytes are a PDF goes through `pdf_excerpt` in `backend/app/helper/pdf.py`. PyMuPDF reads the pages, the text is split into overlapping passages, and the run’s embedding model ranks those passages against the gap question. The highest-scoring passages, up to six and within a character budget, are what the extractor sees, each marked with its page. An HTML page that publishes a `citation_pdf_url` is followed to that PDF and excerpted the same way when the download succeeds.
+
 A gap is **resolved** when notes cover the question. It stays **pending** and is searched again, this time only for the missing parts, until it has been tried three times. After that it is marked **failed**, and the writer says briefly that the research did not establish it. Hosts that fail to download are added to a blocked-domain list and skipped on later loops.
 
 ## Models
 
-Each run uses a key and three models you choose in the window. The catalog comes from [OpenRouter](https://openrouter.ai/). The key stays in the browser’s local storage on this computer and is sent only to the local server, which uses it for that run and does not write it to disk.
+Each run uses a key and four models you choose in the window. The catalog comes from [OpenRouter](https://openrouter.ai/). The key stays in the browser’s local storage on this computer and is sent only to the local server, which uses it for that run and does not write it to disk.
 
-Planner and extractor choices are limited to models that accept tool calls, because those steps return structured data. The writer can be any text model.
+Planner and extractor choices are limited to models that accept tool calls, because those steps return structured data. The writer can be any text model. The embedding model is chosen from OpenRouter’s embedding catalog and is used only to rank passages inside a PDF.
 
 | Role | Default | Job |
 | --- | --- | --- |
 | Planner | `openai/gpt-5-mini` | Split the topic into 5–7 questions, write search queries, and list what a gap still lacks |
 | Extractor | `google/gemini-3.1-flash-lite` | Read a scraped page and keep only the facts that answer the question, or useful side notes |
 | Writer | `anthropic/claude-sonnet-5` | Turn the evidence dossier into one Markdown report with inline source links |
+| Embedding | `openai/text-embedding-3-small` | Rank PDF passages against the gap question so the extractor sees the relevant pages |
 
 The writer is instructed to use only facts from the dossier, keep specific names, dates, and numbers, and cite the URL attached to the note the sentence came from.
 
@@ -88,9 +99,11 @@ deep-research/
 │   │   ├── graph.py            # LangGraph wiring
 │   │   ├── states.py           # Shared state and models
 │   │   ├── llm.py              # OpenRouter clients
+│   │   ├── helper/
+│   │   │   └── pdf.py          # PDF text, passage ranking
 │   │   └── nodes/
 │   │       ├── planning.py     # gaps, queries, checklist
-│   │       ├── search.py       # DuckDuckGo search and page scrape
+│   │       ├── search.py       # search, HTML scrape, PDF hop
 │   │       └── report.py       # final Markdown
 │   ├── reports/                # saved reports (gitignored)
 │   └── pyproject.toml
@@ -141,7 +154,7 @@ pnpm build:linux   # or build:win / build:mac
 
 ## Using the app
 
-1. Enter an OpenRouter API key, pick a planner, extractor, and writer, then type a question or pick a suggestion. Submit with the button or Ctrl/⌘+Enter.
+1. Enter an OpenRouter API key, pick a planner, extractor, writer, and embedding model, then type a question or pick a suggestion. Submit with the button or Ctrl/⌘+Enter.
 2. The sidebar lists the run under **Ongoing research**. The main pane shows questions, search hits, findings, dead URLs, and gap status as they arrive.
 3. When the stream finishes, the Markdown report opens and the run is filed under **Reports**.
 4. Earlier reports load from disk. On startup the most recently updated report opens automatically.
@@ -155,7 +168,8 @@ Report filenames use the first 40 characters of the topic slug (`backend/reports
 | `GET` | `/health` | `{ "status": "ok" }` |
 | `GET` | `/models` | OpenRouter catalog: `{ id, name, tools }`. `tools` is true when the model can fill the planner or extractor role |
 | `POST` | `/openrouter/key` | Checks a key. Body: `{ "api_key": "..." }`. `{ "ok": true }`, or 401 if OpenRouter rejects it |
-| `POST` | `/research` | SSE stream. Body: `{ "topic", "api_key", "planner_model", "extractor_model", "writer_model", "search_engine" }`. `search_engine` is `tavily` or `duckduckgo` |
+| `POST` | `/embedding-models` | OpenRouter embedding catalog. Body: `{ "api_key": "..." }` |
+| `POST` | `/research` | SSE stream. Body: `{ "topic", "api_key", "planner_model", "extractor_model", "writer_model", "embedding_model", "search_engine" }`. `search_engine` is `tavily` or `duckduckgo` |
 | `GET` | `/reports` | JSON list of `{ slug, title, updated_at }`, newest first |
 | `GET` | `/reports/{slug}` | Raw Markdown |
 
