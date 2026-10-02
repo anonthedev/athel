@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
@@ -15,6 +15,8 @@ type QuestionReviewProps = {
   onChange: (questions: DraftQuestion[]) => void
   onContinue: () => void
   onAbort: () => void
+  onOpenSettings: () => void
+  leading?: ReactNode
 }
 
 export function QuestionReview({
@@ -23,7 +25,9 @@ export function QuestionReview({
   error,
   onChange,
   onContinue,
-  onAbort
+  onAbort,
+  onOpenSettings,
+  leading
 }: QuestionReviewProps): React.JSX.Element {
   const fields = useRef<Array<HTMLTextAreaElement | null>>([])
   const focusIndex = useRef<number | null>(null)
@@ -76,15 +80,27 @@ export function QuestionReview({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
-      <header className="flex items-center gap-3 border-b px-8 py-4">
-        <h2 className="min-w-0 truncate text-base font-medium">{topic}</h2>
-        <span className="shrink-0 text-xs text-muted-foreground">Review questions</span>
-        <Button type="button" variant="destructive" size="sm" className="ml-auto cursor-pointer" onClick={onAbort}>
-          Abort
-        </Button>
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2">
+        {leading}
+        <h2 className="min-w-0 truncate px-2 text-sm font-medium" title={topic}>
+          {topic}
+        </h2>
+        <span className="shrink-0 text-sm text-muted-foreground">Review questions</span>
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            className="inline-flex h-8 items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={onOpenSettings}
+          >
+            Settings
+          </button>
+          <Button type="button" variant="outline" size="sm" onClick={onAbort}>
+            Abort
+          </Button>
+        </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-8 py-10">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-8 py-10">
           <div className="flex flex-col gap-2">
             <h3 className="text-2xl font-medium tracking-tight">Questions for this report</h3>
             <p className="text-sm text-muted-foreground">
@@ -105,7 +121,7 @@ export function QuestionReview({
                   value={question.text}
                   rows={1}
                   placeholder="A question the report should answer"
-                  className="min-h-10 flex-1 resize-none border-transparent bg-transparent px-2 py-1.5 text-base leading-7 shadow-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 md:text-base dark:bg-transparent"
+                  className="min-h-10 flex-1 resize-none bg-transparent px-2 py-1.5 text-base leading-7 shadow-none md:text-base dark:bg-transparent"
                   onChange={(event) =>
                     onChange(
                       questions.map((item) =>
@@ -118,7 +134,7 @@ export function QuestionReview({
                 <button
                   type="button"
                   aria-label={`Remove question ${index + 1}`}
-                  className="mt-1.5 flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:opacity-100 hover:bg-muted hover:text-foreground"
+                  className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:opacity-100 hover:bg-muted hover:text-foreground"
                   onClick={() => remove(index)}
                 >
                   <X className="size-3.5" />
@@ -132,26 +148,29 @@ export function QuestionReview({
               Add a question
             </Button>
           ) : (
-            <p className="text-xs text-muted-foreground">Seven questions is the limit.</p>
+            <p className="text-sm text-muted-foreground">Seven questions is the limit.</p>
           )}
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {error ? (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
         </div>
       </div>
       <footer className="border-t">
-        <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-8 py-3">
-          <p className="text-xs text-muted-foreground">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3 px-8 py-3">
+          <p className="text-sm text-muted-foreground">
             {ready.length === 0
               ? 'Add at least one question'
               : `${ready.length} ${ready.length === 1 ? 'question' : 'questions'}`}
           </p>
           <div className="flex items-center gap-3">
-            <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <p className="inline-flex items-center gap-1 text-sm text-muted-foreground">
               <Kbd className="border border-border bg-transparent dark:bg-transparent">{submitHint}</Kbd>
               <Kbd className="border border-border bg-transparent dark:bg-transparent">Enter</Kbd>
             </p>
             <Button
               type="button"
-              className="disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:disabled:bg-transparent"
               disabled={ready.length === 0}
               onClick={onContinue}
             >

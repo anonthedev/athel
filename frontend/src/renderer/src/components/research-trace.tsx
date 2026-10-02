@@ -33,10 +33,18 @@ function gapStatusLabel(status: string): string {
   return 'Failed'
 }
 
-function TraceBlock({ label, children }: { label: string; children: ReactNode }): React.JSX.Element {
+function TraceBlock({
+  label,
+  tone = 'text-muted-foreground',
+  children
+}: {
+  label: string
+  tone?: string
+  children: ReactNode
+}): React.JSX.Element {
   return (
-    <section className="flex flex-col gap-2">
-      <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</h3>
+    <section className="flex flex-col gap-2 border-t pt-5 first:border-t-0 first:pt-0">
+      <h3 className={`text-sm font-medium ${tone}`}>{label}</h3>
       {children}
     </section>
   )
@@ -86,7 +94,16 @@ function TraceEvent({ event }: { event: ResearchEvent }): React.JSX.Element | nu
     case 'gap':
       if (event.status === 'pending') return null
       return (
-        <TraceBlock label={gapStatusLabel(event.status)}>
+        <TraceBlock
+          label={gapStatusLabel(event.status)}
+          tone={
+            event.status === 'resolved'
+              ? 'text-success'
+              : event.status === 'partial'
+                ? 'text-warning'
+                : 'text-destructive'
+          }
+        >
           <p className="text-sm">{event.question}</p>
           {event.missing.length > 0 ? (
             <p className="text-sm text-muted-foreground">{event.missing.join(' ')}</p>
@@ -101,7 +118,7 @@ function TraceEvent({ event }: { event: ResearchEvent }): React.JSX.Element | nu
       )
     case 'error':
       return (
-        <TraceBlock label="Error">
+        <TraceBlock label="Error" tone="text-destructive">
           <p className="text-sm text-destructive">{event.message}</p>
         </TraceBlock>
       )
@@ -114,10 +131,14 @@ function TraceEvent({ event }: { event: ResearchEvent }): React.JSX.Element | nu
 
 export function ResearchTrace({
   run,
-  onAbort
+  onAbort,
+  onOpenSettings,
+  leading
 }: {
   run: ResearchRun
   onAbort: () => void
+  onOpenSettings: () => void
+  leading?: ReactNode
 }): React.JSX.Element {
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
@@ -130,19 +151,31 @@ export function ResearchTrace({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex items-center gap-3 border-b px-8 py-4">
-        <h2 className="min-w-0 truncate text-base font-medium">{run.topic}</h2>
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2">
+        {leading}
+        <h2 className="min-w-0 truncate px-2 text-sm font-medium" title={run.topic}>
+          {run.topic}
+        </h2>
         {run.status === 'running' ? (
-          <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="inline-flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
             <Spinner />
             {runStatusLabel(run)}
           </span>
         ) : null}
-        {run.status === 'running' ? (
-          <Button type="button" variant="destructive" size="sm" className="ml-auto cursor-pointer" onClick={onAbort}>
-            Abort
-          </Button>
-        ) : null}
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            className="inline-flex h-8 items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={onOpenSettings}
+          >
+            Settings
+          </button>
+          {run.status === 'running' ? (
+            <Button type="button" variant="outline" size="sm" onClick={onAbort}>
+              Abort
+            </Button>
+          ) : null}
+        </div>
       </header>
       <div
         ref={scroller}
@@ -154,9 +187,11 @@ export function ResearchTrace({
         }}
       >
         {run.events.length === 0 ? (
-          <div className="flex h-full items-center justify-center px-8">
+          <div className="mx-auto w-full max-w-2xl px-8 py-10">
             {run.status === 'error' ? (
-              <p className="max-w-md text-center text-sm text-destructive">{run.error}</p>
+              <p role="alert" className="text-sm text-destructive">
+                {run.error}
+              </p>
             ) : (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Spinner />
@@ -165,11 +200,15 @@ export function ResearchTrace({
             )}
           </div>
         ) : (
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-8 py-8">
+          <div className="mx-auto flex w-full max-w-2xl flex-col px-8 py-8">
             {run.events.map((event, index) => (
               <TraceEvent key={index} event={event} />
             ))}
-            {run.error ? <p className="text-sm text-destructive">{run.error}</p> : null}
+            {run.error ? (
+              <p role="alert" className="pt-5 text-sm text-destructive">
+                {run.error}
+              </p>
+            ) : null}
           </div>
         )}
       </div>

@@ -1,13 +1,20 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Folder, Moon, Plus, Sun } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type Ref } from 'react'
+import { Folder, Moon, PanelLeft, PanelLeftClose, Plus, Settings, SettingsIcon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { MarkdownReport } from '@/components/markdown-report'
 import { QuestionReview } from '@/components/question-review'
-import { ApiKeyPrompt, ResearchOptions, useApiKeyStatus } from '@/components/research-setup'
+import { ApiKeyPrompt, SettingsDialog, useApiKeyStatus } from '@/components/research-setup'
 import { ResearchTrace, runStatusLabel, type DraftQuestion, type ResearchRun } from '@/components/research-trace'
 import {
   abortResearch,
@@ -22,7 +29,7 @@ import {
   type ReportSummary,
   type ResearchEvent
 } from '@/lib/api'
-import { readSettings, writeSettings } from '@/lib/settings'
+import { hasTavilyKey, readSettings, writeSettings } from '@/lib/settings'
 import { applyTheme, readTheme, type Theme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
@@ -41,6 +48,66 @@ const suggestions = [
 ]
 
 const submitHint = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
+const sidebarStorage = 'deep-research.sidebar'
+
+function readSidebarOpen(): boolean {
+  try {
+    return localStorage.getItem(sidebarStorage) !== 'closed'
+  } catch {
+    return true
+  }
+}
+
+function SettingsButton({
+  onClick,
+  className
+}: {
+  onClick: () => void
+  className?: string
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      className={cn(
+        'inline-flex h-8 items-center rounded-md px-2 text-sm text-muted-foreground hover:text-foreground',
+        className
+      )}
+      onClick={onClick}
+    >
+      <SettingsIcon className="size-4" />
+    </button>
+  )
+}
+
+function SidebarToggle({
+  open,
+  buttonRef,
+  className,
+  onClick
+}: {
+  open: boolean
+  buttonRef: Ref<HTMLButtonElement>
+  className?: string
+  onClick: () => void
+}): React.JSX.Element {
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      aria-expanded={open}
+      aria-controls="report-list"
+      aria-keyshortcuts="Control+\\ Meta+\\"
+      aria-label={open ? 'Hide reports' : 'Show reports'}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground',
+        className
+      )}
+      onClick={onClick}
+    >
+      {open ? <PanelLeftClose className="size-4" /> : <PanelLeft className="size-4" />}
+    </button>
+  )
+}
 
 function formatUpdated(value: string): string {
   const date = new Date(value)
@@ -63,6 +130,8 @@ function App(): React.JSX.Element {
   const [listError, setListError] = useState<string | null>(null)
   const [loadingList, setLoadingList] = useState(true)
   const [theme, setTheme] = useState<Theme>(readTheme)
+  const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [apiKey, setApiKey] = useState(() => readSettings().apiKey)
   const [models, setModels] = useState(() => readSettings().models)
   const [maxIterations, setMaxIterations] = useState(() => readSettings().maxIterations)
@@ -76,6 +145,10 @@ function App(): React.JSX.Element {
   const keyStatus = useApiKeyStatus(apiKey, setKeyRejected)
   const keyReady = keyStatus === 'accepted'
   const screenRef = useRef<Screen>({ type: 'compose' })
+  const focusSidebar = useRef<'open' | 'closed' | null>(null)
+  const expandRef = useRef<HTMLButtonElement>(null)
+  const collapseRef = useRef<HTMLButtonElement>(null)
+  const topicRef = useRef<HTMLTextAreaElement>(null)
   const continuing = useRef(new Set<string>())
   const runAbort = useRef(new Map<string, AbortController>())
   const abortedRuns = useRef(new Set<string>())
@@ -86,7 +159,34 @@ function App(): React.JSX.Element {
     userNavigated.current = true
     screenRef.current = next
     setScreen(next)
+    if (next.type === 'compose') requestAnimationFrame(() => topicRef.current?.focus())
   }
+
+  const setSidebar = useCallback((next: boolean): void => {
+    focusSidebar.current = next ? 'open' : 'closed'
+    setSidebarOpen(next)
+    try {
+      localStorage.setItem(sidebarStorage, next ? 'open' : 'closed')
+    } catch {
+      // The window still toggles for this session.
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    if (focusSidebar.current === 'open') collapseRef.current?.focus()
+    if (focusSidebar.current === 'closed') expandRef.current?.focus()
+    focusSidebar.current = null
+  }, [sidebarOpen])
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent): void {
+      if (event.key !== '\\' || event.altKey || event.shiftKey || !(event.metaKey || event.ctrlKey)) return
+      event.preventDefault()
+      setSidebar(!sidebarOpen)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [setSidebar, sidebarOpen])
 
   useEffect(() => {
     writeSettings({ apiKey, models, maxIterations, searchEngine, tavilyKey })
@@ -340,6 +440,7 @@ function App(): React.JSX.Element {
     })()
   }
 
+  const modelsReady = Boolean(models.planner && models.extractor && models.writer && models.embedding)
   const activeRun = runs.find((run) => screen.type === 'trace' && run.id === screen.id)
   const ongoing = runs.filter(
     (run) => run.status === 'running' || run.status === 'review' || run.status === 'error'
@@ -347,82 +448,126 @@ function App(): React.JSX.Element {
 
   return (
     <div className="flex h-full min-h-0 w-full bg-background font-sans text-foreground">
-      <aside className="flex w-72 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+      <aside
+        id="report-list"
+        inert={!sidebarOpen}
+        aria-hidden={!sidebarOpen}
+        className={cn(
+          'h-full shrink-0 overflow-hidden transition-[width] duration-200 ease-out motion-reduce:transition-none',
+          sidebarOpen ? 'w-72' : 'w-0'
+        )}
+      >
+        <div className="flex h-full w-72 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+        <div className="flex items-center justify-between gap-2 px-3 pt-3">
+          <span className="px-1 text-base font-medium tracking-[-0.03em]">Athel</span>
+          <SidebarToggle
+            open
+            buttonRef={collapseRef}
+            className="hover:bg-sidebar-accent"
+            onClick={() => setSidebar(false)}
+          />
+        </div>
         <div className="px-3 pt-3 pb-2">
           <Button type="button" className="w-full" onClick={() => go({ type: 'compose' })}>
             <Plus />
-            New Research
+            New research
           </Button>
         </div>
         <ScrollArea className="min-h-0 flex-1">
           <div className="flex flex-col gap-1 px-2 pb-4">
             {ongoing.length > 0 ? (
-              <div className="px-2.5 pt-3 pb-1 text-xs font-medium text-muted-foreground">
-                Ongoing research
-              </div>
+              <h2 className="px-3 pt-3 pb-1 text-sm text-muted-foreground">Ongoing research</h2>
             ) : null}
-            {ongoing.map((run) => (
-              <button
-                key={run.id}
-                type="button"
-                className={cn(
-                  'flex w-full flex-col items-start gap-0.5 rounded-lg px-2.5 py-2 text-left hover:bg-sidebar-accent',
-                  screen.type === 'trace' && screen.id === run.id && 'bg-sidebar-accent'
-                )}
-                onClick={() => go({ type: 'trace', id: run.id })}
-              >
-                <span className="line-clamp-2 text-sm font-medium">{run.topic}</span>
-                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                  {run.status === 'running' ? <Spinner /> : null}
-                  {runStatusLabel(run)}
-                </span>
-              </button>
-            ))}
+            <ul className="flex flex-col">
+              {ongoing.map((run) => {
+                const current = screen.type === 'trace' && screen.id === run.id
+                return (
+                  <li key={run.id}>
+                    <button
+                      type="button"
+                      title={run.topic}
+                      aria-current={current ? 'page' : undefined}
+                      className={cn(
+                        'relative flex w-full flex-col items-start gap-0.5 rounded-md py-2 pr-2 pl-3 text-left hover:bg-sidebar-accent',
+                        current &&
+                          'bg-sidebar-accent before:absolute before:top-2 before:bottom-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
+                      )}
+                      onClick={() => go({ type: 'trace', id: run.id })}
+                    >
+                      <span className="line-clamp-2 text-sm font-medium">{run.topic}</span>
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-2 text-sm text-muted-foreground',
+                          run.status === 'error' && 'text-destructive'
+                        )}
+                      >
+                        {run.status === 'running' ? (
+                          <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
+                        ) : null}
+                        {runStatusLabel(run)}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
 
-            <div className="flex items-center justify-between px-2.5 pt-3 pb-1">
-              <span className="text-xs font-medium text-muted-foreground">Reports</span>
+            <div className="flex items-center justify-between px-3 pt-3 pb-1">
+              <h2 className="text-sm text-muted-foreground">Reports</h2>
               <button
                 type="button"
                 aria-label="Open reports folder"
-                className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
                 onClick={() => void window.api.openReportsFolder()}
               >
-                <Folder className="size-3.5" />
+                <Folder className="size-4" />
               </button>
             </div>
             {loadingList ? (
-              <div className="flex items-center gap-2 px-2.5 py-3 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
                 <Spinner />
                 Loading reports
               </div>
             ) : null}
-            {listError ? <p className="px-2.5 py-2 text-sm text-destructive">{listError}</p> : null}
-            {!loadingList && reports.length === 0 ? (
-              <p className="px-2.5 py-3 text-sm text-muted-foreground">No reports yet.</p>
+            {listError ? (
+              <p role="alert" className="px-3 py-2 text-sm text-destructive">
+                {listError}
+              </p>
             ) : null}
-            {reports.map((report) => (
-              <button
-                key={report.slug}
-                type="button"
-                className={cn(
-                  'flex w-full flex-col items-start gap-0.5 rounded-lg px-2.5 py-2 text-left hover:bg-sidebar-accent',
-                  screen.type === 'report' && screen.slug === report.slug && 'bg-sidebar-accent'
-                )}
-                onClick={() => void openSaved(report)}
-              >
-                <span className="line-clamp-2 text-sm font-medium">{report.title}</span>
-                <span className="text-xs text-muted-foreground">
-                  {formatUpdated(report.updated_at)}
-                </span>
-              </button>
-            ))}
+            {!loadingList && reports.length === 0 ? (
+              <p className="px-3 py-3 text-sm text-muted-foreground">No reports yet.</p>
+            ) : null}
+            <ul className="flex flex-col">
+              {reports.map((report) => {
+                const current = screen.type === 'report' && screen.slug === report.slug
+                return (
+                  <li key={report.slug}>
+                    <button
+                      type="button"
+                      title={report.title}
+                      aria-current={current ? 'page' : undefined}
+                      className={cn(
+                        'relative flex w-full flex-col items-start gap-0.5 rounded-md py-2 pr-2 pl-3 text-left hover:bg-sidebar-accent',
+                        current &&
+                          'bg-sidebar-accent before:absolute before:top-2 before:bottom-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
+                      )}
+                      onClick={() => void openSaved(report)}
+                    >
+                      <span className="line-clamp-2 text-sm font-medium">{report.title}</span>
+                      <span className="text-sm text-muted-foreground">{formatUpdated(report.updated_at)}</span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
           </div>
         </ScrollArea>
-        <div className="flex justify-end border-t px-3 py-2">
+        <div className="flex items-center justify-between gap-2 border-t border-sidebar-border px-2 py-2">
+          <SettingsButton onClick={() => setSettingsOpen(true)} className="hover:bg-sidebar-accent" />
           <button
             type="button"
             aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
             onClick={() => {
               const next = theme === 'dark' ? 'light' : 'dark'
               setTheme(next)
@@ -432,74 +577,124 @@ function App(): React.JSX.Element {
             {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </button>
         </div>
+        </div>
       </aside>
 
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        {screen.type === 'compose' && !sidebarOpen ? (
+          <div className="absolute top-2 left-2 z-10">
+            <SidebarToggle
+              open={false}
+              buttonRef={expandRef}
+              className="hover:bg-muted"
+              onClick={() => setSidebar(true)}
+            />
+          </div>
+        ) : null}
         {screen.type === 'compose' && !keyReady ? (
           <ApiKeyPrompt apiKey={apiKey} onApiKeyChange={setApiKey} status={keyStatus} />
         ) : null}
 
         {screen.type === 'compose' && keyReady ? (
-          <form className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-8 py-8" onSubmit={onSubmit}>
+          <form
+            className="flex h-full min-h-0 w-full flex-1 items-center justify-center overflow-y-auto px-8 py-8"
+            onSubmit={onSubmit}
+          >
             <div className="my-auto flex w-full max-w-xl flex-col items-center gap-8">
               <div className="flex flex-col gap-2 text-center">
-                <h2 className="text-2xl font-medium tracking-tight">What should I research?</h2>
+                <h1 id="topic-label" className="text-2xl font-medium tracking-tight">
+                  What should I research?
+                </h1>
                 <p className="text-sm text-muted-foreground">
                   Ask one question. You can edit the research questions before the search starts.
                 </p>
               </div>
-              <div className="w-full overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/40">
-                <Textarea
-                  autoFocus
-                  value={topic}
-                  placeholder="A question, a debate, or a stretch of history"
-                  rows={5}
-                  className="min-h-36 resize-none border-0 bg-transparent px-4 py-4 text-base shadow-none focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent md:text-base dark:bg-transparent dark:disabled:bg-transparent"
-                  onChange={(event) => setTopic(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                      event.preventDefault()
-                      event.currentTarget.form?.requestSubmit()
-                    }
-                  }}
-                />
-                <div className="flex flex-wrap items-end justify-between gap-3 bg-card px-3 pb-3">
-                  <ResearchOptions
-                    apiKey={apiKey}
-                    onApiKeyChange={setApiKey}
-                    status={keyStatus}
-                    models={models}
-                    onModelsChange={setModels}
-                    maxIterations={maxIterations}
-                    onMaxIterationsChange={setMaxIterations}
-                    searchEngine={searchEngine}
-                    onSearchEngineChange={setSearchEngine}
-                    tavilyKey={tavilyKey}
-                    onTavilyKeyChange={setTavilyKey}
-                    catalog={catalog}
-                    catalogError={catalogError}
-                    embeddingCatalog={embeddingCatalog}
-                    embeddingCatalogError={embeddingCatalogError}
-                  />
-                  <div className="ml-auto flex items-center gap-3">
-                    <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                      <Kbd className="border border-border bg-transparent dark:bg-transparent">{submitHint}</Kbd>
-                      <Kbd className="border border-border bg-transparent dark:bg-transparent">Enter</Kbd>
-                    </p>
-                    <Button
-                      type="submit"
-                      className="disabled:bg-muted disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-100 dark:disabled:bg-muted cursor-pointer rounded-md"
-                      disabled={
-                        topic.trim().length === 0 ||
-                        !models.planner ||
-                        !models.extractor ||
-                        !models.writer ||
-                        !models.embedding
+              <div className="flex w-full flex-col gap-3">
+                <div className="research-field w-full overflow-hidden rounded-2xl border bg-card">
+                  <Textarea
+                    ref={topicRef}
+                    id="topic"
+                    aria-labelledby="topic-label"
+                    autoFocus
+                    value={topic}
+                    placeholder="A question, a debate, or a stretch of history"
+                    rows={5}
+                    className="min-h-36 resize-none border-0 bg-transparent px-4 py-4 text-base shadow-none md:text-base dark:bg-transparent"
+                    onChange={(event) => setTopic(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                        event.preventDefault()
+                        event.currentTarget.form?.requestSubmit()
                       }
+                    }}
+                  />
+                  <div className="flex items-center justify-between gap-3 px-3 pb-3">
+                    <button
+                      type="button"
+                      aria-label="Settings"
+                      className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                      onClick={() => setSettingsOpen(true)}
                     >
-                      Research
-                    </Button>
+                      <Settings className="size-4" />
+                    </button>
+                    <div className="flex items-center gap-3">
+                      <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        <Kbd className="border border-border bg-transparent dark:bg-transparent">{submitHint}</Kbd>
+                        <Kbd className="border border-border bg-transparent dark:bg-transparent">Enter</Kbd>
+                      </p>
+                      <Button type="submit" disabled={topic.trim().length === 0 || !modelsReady}>
+                        Research
+                      </Button>
+                    </div>
                   </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select
+                    value={searchEngine}
+                    onValueChange={(value) => {
+                      if (value === 'duckduckgo') {
+                        setSearchEngine('duckduckgo')
+                        return
+                      }
+                      if (value !== 'tavily') return
+                      if (hasTavilyKey(tavilyKey)) {
+                        setSearchEngine('tavily')
+                        return
+                      }
+                      setSettingsOpen(true)
+                    }}
+                  >
+                    <SelectTrigger size="sm" aria-label="Search engine" className="cursor-pointer">
+                      <span className="text-muted-foreground">Search</span>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent side="bottom" align="start">
+                      <SelectItem value="tavily">Tavily</SelectItem>
+                      <SelectItem value="duckduckgo">DuckDuckGo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={String(maxIterations)}
+                    onValueChange={(value) => {
+                      const parsed = Number(value)
+                      if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 10) setMaxIterations(parsed)
+                    }}
+                  >
+                    <SelectTrigger size="sm" aria-label="Follow-up searches" className="cursor-pointer">
+                      <span className="text-muted-foreground">Iterations</span>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent side="bottom" align="start">
+                      {Array.from({ length: 10 }, (_, index) => {
+                        const count = String(index + 1)
+                        return (
+                          <SelectItem key={count} value={count}>
+                            {count}
+                          </SelectItem>
+                        )
+                      })}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="flex flex-wrap justify-center gap-2">
@@ -508,7 +703,10 @@ function App(): React.JSX.Element {
                     key={suggestion}
                     type="button"
                     className="rounded-full border bg-background px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                    onClick={() => setTopic(suggestion)}
+                    onClick={() => {
+                      setTopic(suggestion)
+                      topicRef.current?.focus()
+                    }}
                   >
                     {suggestion}
                   </button>
@@ -528,22 +726,60 @@ function App(): React.JSX.Element {
             }
             onContinue={() => continueResearch(activeRun.id)}
             onAbort={() => abortRun(activeRun.id)}
+            onOpenSettings={() => setSettingsOpen(true)}
+            leading={
+              sidebarOpen ? null : (
+                <SidebarToggle
+                  open={false}
+                  buttonRef={expandRef}
+                  className="hover:bg-muted"
+                  onClick={() => setSidebar(true)}
+                />
+              )
+            }
           />
         ) : null}
 
         {screen.type === 'trace' && activeRun && activeRun.status !== 'review' ? (
-          <ResearchTrace run={activeRun} onAbort={() => abortRun(activeRun.id)} />
+          <ResearchTrace
+            run={activeRun}
+            onAbort={() => abortRun(activeRun.id)}
+            onOpenSettings={() => setSettingsOpen(true)}
+            leading={
+              sidebarOpen ? null : (
+                <SidebarToggle
+                  open={false}
+                  buttonRef={expandRef}
+                  className="hover:bg-muted"
+                  onClick={() => setSidebar(true)}
+                />
+              )
+            }
+          />
         ) : null}
 
         {screen.type === 'report' ? (
           <div className="flex min-h-0 flex-1 flex-col">
-            <header className="border-b py-4">
-              <h2 className="reading-column truncate px-8 text-base font-medium">
+            <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2">
+              {sidebarOpen ? null : (
+                <SidebarToggle
+                  open={false}
+                  buttonRef={expandRef}
+                  className="hover:bg-muted"
+                  onClick={() => setSidebar(true)}
+                />
+              )}
+              <h2
+                className="min-w-0 flex-1 truncate px-2 text-sm font-medium"
+                title={article?.slug === screen.slug ? article.title : undefined}
+              >
                 {article?.slug === screen.slug ? article.title : 'Report'}
               </h2>
             </header>
             {reportError && article?.slug !== screen.slug ? (
-              <p className="px-8 py-4 text-sm text-destructive">{reportError}</p>
+              <p role="alert" className="px-8 py-4 text-sm text-destructive">
+                {reportError}
+              </p>
             ) : null}
             {article?.slug === screen.slug ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
@@ -558,6 +794,25 @@ function App(): React.JSX.Element {
           </div>
         ) : null}
       </main>
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        apiKey={apiKey}
+        onApiKeyChange={setApiKey}
+        status={keyStatus}
+        models={models}
+        onModelsChange={setModels}
+        maxIterations={maxIterations}
+        onMaxIterationsChange={setMaxIterations}
+        searchEngine={searchEngine}
+        onSearchEngineChange={setSearchEngine}
+        tavilyKey={tavilyKey}
+        onTavilyKeyChange={setTavilyKey}
+        catalog={catalog}
+        catalogError={catalogError}
+        embeddingCatalog={embeddingCatalog}
+        embeddingCatalogError={embeddingCatalogError}
+      />
     </div>
   )
 }

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Eye, EyeOff, KeyRound } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
+import { Eye, EyeOff, Minus, Plus } from 'lucide-react'
 import {
   Combobox,
   ComboboxContent,
@@ -11,25 +11,17 @@ import {
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
-  DialogTitle,
-  DialogTrigger
+  DialogTitle
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { ApiError, checkOpenRouterKey, type OpenRouterModel } from '@/lib/api'
 import { hasTavilyKey, type ModelChoice, type SearchEngine } from '@/lib/settings'
+import { cn } from '@/lib/utils'
 
 type KeyStatus = 'idle' | 'checking' | 'accepted' | 'rejected' | 'invalid' | 'unreachable'
 
@@ -142,18 +134,21 @@ function ApiKeyField({
 }: KeyProps & { autoFocus?: boolean }): React.JSX.Element {
   const [visible, setVisible] = useState(false)
   const message = keyMessage(status)
+  const failed = status === 'rejected' || status === 'invalid'
+  const tone =
+    failed ? 'text-destructive' : status === 'accepted' ? 'text-success' : 'text-muted-foreground'
 
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <Label htmlFor="openrouter-key" className="text-xs font-medium text-muted-foreground">
+        <Label htmlFor="openrouter-key" className="text-sm font-medium">
           OpenRouter API key
         </Label>
         <a
           href="https://openrouter.ai/keys"
           target="_blank"
           rel="noreferrer"
-          className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          className="text-sm text-muted-foreground underline decoration-primary underline-offset-2 hover:text-foreground"
         >
           Get a key
         </a>
@@ -166,8 +161,9 @@ function ApiKeyField({
           autoComplete="off"
           spellCheck={false}
           placeholder="sk-or-..."
-          aria-invalid={status === 'rejected' || status === 'invalid'}
-          className="pr-8"
+          aria-invalid={failed}
+          aria-describedby="openrouter-key-status"
+          className="h-9 pr-10"
           autoFocus={autoFocus}
           onChange={(event) => onApiKeyChange(event.target.value)}
           onBlur={() => onApiKeyChange(apiKey.trim())}
@@ -175,13 +171,13 @@ function ApiKeyField({
         <button
           type="button"
           aria-label={visible ? 'Hide API key' : 'Show API key'}
-          className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+          className="absolute top-1/2 right-0.5 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
           onClick={() => setVisible((current) => !current)}
         >
-          {visible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+          {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
         </button>
       </div>
-      <p className={status === 'rejected' || status === 'invalid' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+      <p id="openrouter-key-status" aria-live="polite" className={`text-sm ${tone}`}>
         {message ?? 'Saved on this computer and sent only to the local server.'}
       </p>
     </div>
@@ -193,34 +189,44 @@ function TavilyKeyField({
   value,
   onChange,
   onCommit,
+  attention = false,
+  inputRef,
   autoFocus = false
 }: {
   id: string
   value: string
   onChange: (value: string) => void
   onCommit?: (value: string) => void
+  attention?: boolean
+  inputRef?: Ref<HTMLInputElement>
   autoFocus?: boolean
 }): React.JSX.Element {
   const [visible, setVisible] = useState(false)
   const invalid = value.trim().length > 0 && (value.trim().length < 8 || /\s/u.test(value))
+  const message = invalid
+    ? "That isn't a Tavily API key"
+    : attention
+      ? 'Add a Tavily key to search with Tavily.'
+      : 'Saved on this computer and sent only to the local server.'
 
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">
+        <Label htmlFor={id} className="text-sm font-medium">
           Tavily API key
         </Label>
         <a
           href="https://app.tavily.com"
           target="_blank"
           rel="noreferrer"
-          className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          className="text-sm text-muted-foreground underline decoration-primary underline-offset-2 hover:text-foreground"
         >
           Get a key
         </a>
       </div>
       <div className="relative">
         <Input
+          ref={inputRef}
           id={id}
           value={value}
           type={visible ? 'text' : 'password'}
@@ -228,7 +234,8 @@ function TavilyKeyField({
           spellCheck={false}
           placeholder="tvly-..."
           aria-invalid={invalid}
-          className="pr-8"
+          aria-describedby={`${id}-status`}
+          className="h-9 pr-10"
           autoFocus={autoFocus}
           onChange={(event) => onChange(event.target.value)}
           onBlur={(event) => {
@@ -240,14 +247,24 @@ function TavilyKeyField({
         <button
           type="button"
           aria-label={visible ? 'Hide Tavily API key' : 'Show Tavily API key'}
-          className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+          className="absolute top-1/2 right-0.5 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
           onClick={() => setVisible((current) => !current)}
         >
-          {visible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+          {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
         </button>
       </div>
-      <p className={invalid ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
-        {invalid ? "That isn't a Tavily API key" : 'Saved on this computer and sent only to the local server.'}
+      <p
+        id={`${id}-status`}
+        aria-live="polite"
+        className={
+          invalid
+            ? 'text-sm text-destructive'
+            : attention
+              ? 'text-sm text-warning'
+              : 'text-sm text-muted-foreground'
+        }
+      >
+        {message}
       </p>
     </div>
   )
@@ -255,17 +272,15 @@ function TavilyKeyField({
 
 export function ApiKeyPrompt(props: KeyProps): React.JSX.Element {
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-8 py-8">
-      <div className="my-auto flex w-full max-w-md flex-col gap-6">
-        <div className="flex flex-col gap-2 text-center">
-          <h2 className="text-2xl font-medium tracking-tight">Add your OpenRouter key</h2>
-          <p className="text-sm text-muted-foreground">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="my-auto flex w-full max-w-md flex-col gap-6 self-center px-8 py-10">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-[1.75rem] font-medium tracking-[-0.03em]">Add your OpenRouter key</h1>
+          <p className="text-sm leading-6 text-muted-foreground">
             Research runs with your key. It stays on this computer.
           </p>
         </div>
-        <div className="overflow-hidden rounded-2xl border bg-card p-4 shadow-sm">
-          <ApiKeyField {...props} autoFocus />
-        </div>
+        <ApiKeyField {...props} autoFocus />
       </div>
     </div>
   )
@@ -294,8 +309,8 @@ function ModelField({
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       <div className="flex flex-col gap-0.5">
-        <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">{label}</Label>
-        <p className="text-xs text-muted-foreground">{hint}</p>
+        <Label htmlFor={id} className="text-sm font-medium">{label}</Label>
+        <p id={`${id}-hint`} className="text-sm text-muted-foreground">{hint}</p>
       </div>
       <Combobox
         items={models}
@@ -312,7 +327,12 @@ function ModelField({
           if (next) onChange(next.id)
         }}
       >
-        <ComboboxInput id={id} placeholder={modelName(models, value)} className="w-full" />
+        <ComboboxInput
+          id={id}
+          aria-describedby={`${id}-hint`}
+          placeholder={modelName(models, value)}
+          className="w-full"
+        />
         <ComboboxContent className="w-(--anchor-width) min-w-(--anchor-width)">
           <ComboboxEmpty>No models match.</ComboboxEmpty>
           <ComboboxList>
@@ -329,7 +349,18 @@ function ModelField({
   )
 }
 
-export function ResearchOptions({
+function SettingsSection({ title, children }: { title: string; children: ReactNode }): React.JSX.Element {
+  return (
+    <section className="flex flex-col gap-3 border-t pt-5">
+      <h3 className="text-sm font-medium">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+export function SettingsDialog({
+  open,
+  onOpenChange,
   apiKey,
   onApiKeyChange,
   status,
@@ -345,9 +376,12 @@ export function ResearchOptions({
   catalogError,
   embeddingCatalog,
   embeddingCatalogError
-}: ResearchOptionsProps): React.JSX.Element {
-  const [askForTavily, setAskForTavily] = useState(false)
-  const [draftTavilyKey, setDraftTavilyKey] = useState('')
+}: ResearchOptionsProps & {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}): React.JSX.Element {
+  const [needsTavilyKey, setNeedsTavilyKey] = useState(false)
+  const tavilyRef = useRef<HTMLInputElement>(null)
   const plannerModels = useMemo(
     () => choicesFor(catalog, models.planner, true),
     [catalog, models.planner]
@@ -365,153 +399,170 @@ export function ResearchOptions({
     [embeddingCatalog, models.embedding]
   )
 
+  function chooseSearch(value: string): void {
+    if (value === 'duckduckgo') {
+      setNeedsTavilyKey(false)
+      onSearchEngineChange('duckduckgo')
+      return
+    }
+    if (value !== 'tavily') return
+    if (hasTavilyKey(tavilyKey)) {
+      setNeedsTavilyKey(false)
+      onSearchEngineChange('tavily')
+      return
+    }
+    setNeedsTavilyKey(true)
+    tavilyRef.current?.focus()
+  }
+
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Dialog>
-          <DialogTrigger
-            type="button"
-            className="cursor-pointer inline-flex h-7 items-center rounded-md border border-border bg-background px-2.5 text-xs hover:bg-muted dark:bg-muted/70 text-muted-foreground"
-          >
-            Configure Models
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Models</DialogTitle>
-              <DialogDescription>
-                Choose who drafts the questions, reads the pages, writes the report, and ranks PDF pages.
-              </DialogDescription>
-            </DialogHeader>
-            <ModelField
-              id="planner-model"
-              label="Planner"
-              hint="Drafts the research questions."
-              models={plannerModels}
-              value={models.planner}
-              onChange={(planner) => onModelsChange({ ...models, planner })}
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[min(40rem,calc(100%-2rem))] gap-5 overflow-y-auto p-6 sm:max-w-lg">
+        <DialogHeader className="pr-8">
+          <DialogTitle>Settings</DialogTitle>
+          <DialogDescription>Keys, search, and the models used for the next report.</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-4">
+          <h3 className="text-sm font-medium">Keys</h3>
+          <ApiKeyField apiKey={apiKey} onApiKeyChange={onApiKeyChange} status={status} />
+          <TavilyKeyField
+            id="tavily-key-settings"
+            value={tavilyKey}
+            attention={needsTavilyKey && !hasTavilyKey(tavilyKey)}
+            inputRef={tavilyRef}
+            onChange={onTavilyKeyChange}
+            onCommit={(next) => {
+              if (hasTavilyKey(next)) setNeedsTavilyKey(false)
+              if (!hasTavilyKey(next) && searchEngine === 'tavily') onSearchEngineChange('duckduckgo')
+            }}
+          />
+        </div>
+        <SettingsSection title="Search">
+          <RadioGroup value={searchEngine} onValueChange={chooseSearch} aria-label="Search" className="gap-2">
+            <SearchChoice
+              value="duckduckgo"
+              title="DuckDuckGo"
+              detail="Searches without an extra key."
+              selected={searchEngine === 'duckduckgo'}
+              onSelect={chooseSearch}
             />
-            <ModelField
-              id="extractor-model"
-              label="Extractor"
-              hint="Reads pages and pulls out facts."
-              models={extractorModels}
-              value={models.extractor}
-              onChange={(extractor) => onModelsChange({ ...models, extractor })}
+            <SearchChoice
+              value="tavily"
+              title="Tavily"
+              detail="Uses the Tavily key above."
+              selected={searchEngine === 'tavily'}
+              onSelect={chooseSearch}
             />
-            <ModelField
-              id="writer-model"
-              label="Writer"
-              hint="Writes the report from the notes."
-              models={writerModels}
-              value={models.writer}
-              onChange={(writer) => onModelsChange({ ...models, writer })}
-            />
-            <ModelField
-              id="embedding-model"
-              label="Embedding"
-              hint="Ranks pages inside PDFs."
-              models={embeddingModels}
-              value={models.embedding}
-              onChange={(embedding) => onModelsChange({ ...models, embedding })}
-            />
-            {catalogError ? <p className="text-xs text-destructive">{catalogError}</p> : null}
-            {embeddingCatalogError ? <p className="text-xs text-destructive">{embeddingCatalogError}</p> : null}
-          </DialogContent>
-        </Dialog>
-        <Select
-          value={searchEngine}
-          onValueChange={(value) => {
-            if (value === 'duckduckgo') {
-              onSearchEngineChange('duckduckgo')
-              return
-            }
-            if (value !== 'tavily') return
-            if (hasTavilyKey(tavilyKey)) {
-              onSearchEngineChange('tavily')
-              return
-            }
-            setDraftTavilyKey('')
-            setAskForTavily(true)
-          }}
-        >
-          <SelectTrigger size="sm" aria-label="Search engine" className="max-w-44 cursor-pointer hover:bg-muted">
-            <span className="text-muted-foreground">Search</span>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent side="top" align="start">
-            <SelectItem value="tavily">Tavily</SelectItem>
-            <SelectItem value="duckduckgo">DuckDuckGo</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select
-          value={String(maxIterations)}
-          onValueChange={(value) => {
-            const parsed = Number(value)
-            if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 10) onMaxIterationsChange(parsed)
-          }}
-        >
-          <SelectTrigger size="sm" aria-label="Max iterations" className="max-w-40 cursor-pointer hover:bg-muted">
-            <span className="text-muted-foreground">Iterations</span>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent side="top" align="start">
-            {Array.from({ length: 10 }, (_, index) => {
-              const count = String(index + 1)
-              return (
-                <SelectItem key={count} value={count}>
-                  {count}
-                </SelectItem>
-              )
-            })}
-          </SelectContent>
-        </Select>
-        <Popover>
-          <PopoverTrigger
-            type="button"
-            aria-label="Change API keys"
-            className="inline-flex size-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer dark:bg-muted/70"
-          >
-            <KeyRound className="size-3.5" />
-          </PopoverTrigger>
-          <PopoverContent side="top" align="start" className="flex w-80 flex-col gap-4">
-            <ApiKeyField apiKey={apiKey} onApiKeyChange={onApiKeyChange} status={status} />
-            <TavilyKeyField
-              id="tavily-key-settings"
-              value={tavilyKey}
-              onChange={onTavilyKeyChange}
-              onCommit={(next) => {
-                if (!hasTavilyKey(next) && searchEngine === 'tavily') onSearchEngineChange('duckduckgo')
-              }}
-            />
-          </PopoverContent>
-        </Popover>
-      </div>
-      {catalogError ? <p className="text-xs text-destructive">{catalogError}</p> : null}
-      <Dialog open={askForTavily} onOpenChange={setAskForTavily}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add a Tavily key</DialogTitle>
-            <DialogDescription>
-              Tavily searches the web for this run. The key stays on this computer.
-            </DialogDescription>
-          </DialogHeader>
-          <TavilyKeyField id="tavily-key-prompt" value={draftTavilyKey} onChange={setDraftTavilyKey} autoFocus />
-          <div className="flex justify-end gap-2">
-            <DialogClose render={<Button type="button" variant="outline" />}>Not now</DialogClose>
-            <Button
-              type="button"
-              disabled={draftTavilyKey.trim().length < 8 || /\s/u.test(draftTavilyKey)}
-              onClick={() => {
-                onTavilyKeyChange(draftTavilyKey.trim())
-                onSearchEngineChange('tavily')
-                setAskForTavily(false)
-              }}
-            >
-              Use Tavily
-            </Button>
+          </RadioGroup>
+        </SettingsSection>
+        <SettingsSection title="Follow-up searches">
+          <div className="flex items-center justify-between gap-4">
+            <p id="follow-up-hint" className="text-sm text-muted-foreground">
+              When a question is still open, search again up to {maxIterations}{' '}
+              {maxIterations === 1 ? 'time' : 'times'}.
+            </p>
+            <div className="flex shrink-0 items-center gap-1" role="group" aria-labelledby="follow-up-hint">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label="Fewer follow-up searches"
+                disabled={maxIterations <= 1}
+                onClick={() => onMaxIterationsChange(maxIterations - 1)}
+              >
+                <Minus />
+              </Button>
+              <span className="w-6 text-center text-sm tabular-nums" aria-live="polite">
+                {maxIterations}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label="More follow-up searches"
+                disabled={maxIterations >= 10}
+                onClick={() => onMaxIterationsChange(maxIterations + 1)}
+              >
+                <Plus />
+              </Button>
+            </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </SettingsSection>
+        <SettingsSection title="Models">
+          <ModelField
+            id="planner-model"
+            label="Planner"
+            hint="Drafts the research questions."
+            models={plannerModels}
+            value={models.planner}
+            onChange={(planner) => onModelsChange({ ...models, planner })}
+          />
+          <ModelField
+            id="extractor-model"
+            label="Extractor"
+            hint="Reads pages and pulls out facts."
+            models={extractorModels}
+            value={models.extractor}
+            onChange={(extractor) => onModelsChange({ ...models, extractor })}
+          />
+          <ModelField
+            id="writer-model"
+            label="Writer"
+            hint="Writes the report from the notes."
+            models={writerModels}
+            value={models.writer}
+            onChange={(writer) => onModelsChange({ ...models, writer })}
+          />
+          <ModelField
+            id="embedding-model"
+            label="Embedding"
+            hint="Ranks pages inside PDFs."
+            models={embeddingModels}
+            value={models.embedding}
+            onChange={(embedding) => onModelsChange({ ...models, embedding })}
+          />
+          {catalogError ? <p className="text-sm text-destructive">{catalogError}</p> : null}
+          {embeddingCatalogError ? <p className="text-sm text-destructive">{embeddingCatalogError}</p> : null}
+        </SettingsSection>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function SearchChoice({
+  value,
+  title,
+  detail,
+  selected,
+  onSelect
+}: {
+  value: string
+  title: string
+  detail: string
+  selected: boolean
+  onSelect: (value: string) => void
+}): React.JSX.Element {
+  return (
+    <div
+      className={cn(
+        'flex cursor-pointer items-start gap-3 rounded-lg border p-3',
+        selected ? 'border-primary bg-accent/70' : 'hover:bg-muted'
+      )}
+      onClick={() => onSelect(value)}
+    >
+      <RadioGroupItem
+        id={`search-${value}`}
+        value={value}
+        aria-label={title}
+        aria-describedby={`search-${value}-detail`}
+        className="mt-0.5"
+      />
+      <span>
+        <span className="block text-sm">{title}</span>
+        <span id={`search-${value}-detail`} className="mt-0.5 block text-sm text-muted-foreground">
+          {detail}
+        </span>
+      </span>
     </div>
   )
 }
