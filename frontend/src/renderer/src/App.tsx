@@ -2,13 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEve
 import { Folder, Moon, PanelLeft, PanelLeftClose, Plus, Settings, SettingsIcon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
@@ -21,6 +14,7 @@ import {
   getReport,
   listEmbeddingModels,
   listModels,
+  listOllamaModels,
   listReports,
   resumeResearch,
   slugify,
@@ -29,7 +23,7 @@ import {
   type ReportSummary,
   type ResearchEvent
 } from '@/lib/api'
-import { hasTavilyKey, readSettings, writeSettings } from '@/lib/settings'
+import { fillOllamaModels, readSettings, writeSettings, type Provider } from '@/lib/settings'
 import { applyTheme, readTheme, type Theme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
@@ -132,8 +126,10 @@ function App(): React.JSX.Element {
   const [theme, setTheme] = useState<Theme>(readTheme)
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [provider, setProvider] = useState<Provider>(() => readSettings().provider)
   const [apiKey, setApiKey] = useState(() => readSettings().apiKey)
   const [models, setModels] = useState(() => readSettings().models)
+  const [ollamaModels, setOllamaModels] = useState(() => readSettings().ollamaModels)
   const [maxIterations, setMaxIterations] = useState(() => readSettings().maxIterations)
   const [searchEngine, setSearchEngine] = useState(() => readSettings().searchEngine)
   const [tavilyKey, setTavilyKey] = useState(() => readSettings().tavilyKey)
@@ -141,6 +137,9 @@ function App(): React.JSX.Element {
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [embeddingCatalog, setEmbeddingCatalog] = useState<OpenRouterModel[]>([])
   const [embeddingCatalogError, setEmbeddingCatalogError] = useState<string | null>(null)
+  const [ollamaCatalog, setOllamaCatalog] = useState<OpenRouterModel[]>([])
+  const [ollamaError, setOllamaError] = useState<string | null>(null)
+  const [ollamaLoaded, setOllamaLoaded] = useState(false)
   const [keyRejected, setKeyRejected] = useState(false)
   const keyStatus = useApiKeyStatus(apiKey, setKeyRejected)
   const keyReady = keyStatus === 'accepted'
@@ -189,8 +188,8 @@ function App(): React.JSX.Element {
   }, [setSidebar, sidebarOpen])
 
   useEffect(() => {
-    writeSettings({ apiKey, models, maxIterations, searchEngine, tavilyKey })
-  }, [apiKey, models, maxIterations, searchEngine, tavilyKey])
+    writeSettings({ provider, apiKey, models, ollamaModels, maxIterations, searchEngine, tavilyKey })
+  }, [provider, apiKey, models, ollamaModels, maxIterations, searchEngine, tavilyKey])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -202,6 +201,26 @@ function App(): React.JSX.Element {
       })
     return () => controller.abort()
   }, [])
+
+  useEffect(() => {
+    if (provider !== 'ollama') return
+    const controller = new AbortController()
+    setOllamaLoaded(false)
+    listOllamaModels(controller.signal)
+      .then((items) => {
+        setOllamaCatalog(items)
+        setOllamaError(null)
+        setOllamaLoaded(true)
+        setOllamaModels((current) => fillOllamaModels(current, items))
+      })
+      .catch((cause: unknown) => {
+        if (cause instanceof DOMException && cause.name === 'AbortError') return
+        setOllamaCatalog([])
+        setOllamaError(cause instanceof Error ? cause.message : 'Could not load Ollama models')
+        setOllamaLoaded(true)
+      })
+    return () => controller.abort()
+  }, [provider])
 
   useEffect(() => {
     if (!keyReady) return
@@ -350,8 +369,10 @@ function App(): React.JSX.Element {
     event.preventDefault()
     const nextTopic = topic.trim()
     const nextKey = apiKey.trim()
-    if (!nextTopic || nextKey.length < 8 || keyRejected) return
-    if (!models.planner || !models.extractor || !models.writer || !models.embedding) return
+    const chosen = provider === 'ollama' ? ollamaModels : models
+    if (!nextTopic) return
+    if (provider === 'openrouter' && (nextKey.length < 8 || keyRejected)) return
+    if (!chosen.planner || !chosen.extractor || !chosen.writer) return
 
     const id = crypto.randomUUID()
     const run: ResearchRun = {
@@ -375,7 +396,15 @@ function App(): React.JSX.Element {
       try {
         await startResearch(
           nextTopic,
-          { apiKey: nextKey, models, tavilyKey, threadId: id, maxIterations, searchEngine },
+          {
+            provider,
+            apiKey: nextKey,
+            models: chosen,
+            tavilyKey,
+            threadId: id,
+            maxIterations,
+            searchEngine
+          },
           (researchEvent) => {
             applyEvent(id, researchEvent, report, paused)
           },
@@ -394,7 +423,10 @@ function App(): React.JSX.Element {
     if (continuing.current.has(id)) return
     const run = runs.find((item) => item.id === id)
     const nextKey = apiKey.trim()
+    const chosen = provider === 'ollama' ? ollamaModels : models
     if (!run || run.status !== 'review') return
+    if (provider === 'openrouter' && (nextKey.length < 8 || keyRejected)) return
+    if (!chosen.planner || !chosen.extractor || !chosen.writer) return
     const questions = run.questions
       .map((question) => question.text.trim())
       .filter(Boolean)
@@ -418,9 +450,15 @@ function App(): React.JSX.Element {
       const paused = { value: false }
       const signal = bindRun(id)
       try {
-        await resumeResearch(id, questions, { apiKey: nextKey, models, tavilyKey }, (researchEvent) => {
-          applyEvent(id, researchEvent, report, paused)
-        }, signal)
+        await resumeResearch(
+          id,
+          questions,
+          { provider, apiKey: nextKey, models: chosen, tavilyKey },
+          (researchEvent) => {
+            applyEvent(id, researchEvent, report, paused)
+          },
+          signal
+        )
       } catch (cause: unknown) {
         if (abortedRuns.current.has(id)) return
         if (cause instanceof DOMException && cause.name === 'AbortError') return
@@ -440,7 +478,9 @@ function App(): React.JSX.Element {
     })()
   }
 
-  const modelsReady = Boolean(models.planner && models.extractor && models.writer && models.embedding)
+  const activeModels = provider === 'ollama' ? ollamaModels : models
+  const modelsReady = Boolean(activeModels.planner && activeModels.extractor && activeModels.writer)
+  const composeReady = provider === 'ollama' || keyReady
   const activeRun = runs.find((run) => screen.type === 'trace' && run.id === screen.id)
   const ongoing = runs.filter(
     (run) => run.status === 'running' || run.status === 'review' || run.status === 'error'
@@ -591,11 +631,16 @@ function App(): React.JSX.Element {
             />
           </div>
         ) : null}
-        {screen.type === 'compose' && !keyReady ? (
-          <ApiKeyPrompt apiKey={apiKey} onApiKeyChange={setApiKey} status={keyStatus} />
+        {screen.type === 'compose' && !composeReady ? (
+          <ApiKeyPrompt
+            apiKey={apiKey}
+            onApiKeyChange={setApiKey}
+            status={keyStatus}
+            onUseLocal={() => setProvider('ollama')}
+          />
         ) : null}
 
-        {screen.type === 'compose' && keyReady ? (
+        {screen.type === 'compose' && composeReady ? (
           <form
             className="flex h-full min-h-0 w-full flex-1 items-center justify-center overflow-y-auto px-8 py-8"
             onSubmit={onSubmit}
@@ -648,54 +693,9 @@ function App(): React.JSX.Element {
                     </div>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Select
-                    value={searchEngine}
-                    onValueChange={(value) => {
-                      if (value === 'duckduckgo') {
-                        setSearchEngine('duckduckgo')
-                        return
-                      }
-                      if (value !== 'tavily') return
-                      if (hasTavilyKey(tavilyKey)) {
-                        setSearchEngine('tavily')
-                        return
-                      }
-                      setSettingsOpen(true)
-                    }}
-                  >
-                    <SelectTrigger size="sm" aria-label="Search engine" className="cursor-pointer">
-                      <span className="text-muted-foreground">Search</span>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent side="bottom" align="start">
-                      <SelectItem value="tavily">Tavily</SelectItem>
-                      <SelectItem value="duckduckgo">DuckDuckGo</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={String(maxIterations)}
-                    onValueChange={(value) => {
-                      const parsed = Number(value)
-                      if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 10) setMaxIterations(parsed)
-                    }}
-                  >
-                    <SelectTrigger size="sm" aria-label="Follow-up searches" className="cursor-pointer">
-                      <span className="text-muted-foreground">Iterations</span>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent side="bottom" align="start">
-                      {Array.from({ length: 10 }, (_, index) => {
-                        const count = String(index + 1)
-                        return (
-                          <SelectItem key={count} value={count}>
-                            {count}
-                          </SelectItem>
-                        )
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {provider === 'ollama' && ollamaError ? (
+                  <p className="text-sm text-destructive">{ollamaError}</p>
+                ) : null}
               </div>
               <div className="flex flex-wrap justify-center gap-2">
                 {suggestions.map((suggestion) => (
@@ -800,16 +800,19 @@ function App(): React.JSX.Element {
         apiKey={apiKey}
         onApiKeyChange={setApiKey}
         status={keyStatus}
-        models={models}
-        onModelsChange={setModels}
+        provider={provider}
+        onProviderChange={setProvider}
+        models={activeModels}
+        onModelsChange={provider === 'ollama' ? setOllamaModels : setModels}
         maxIterations={maxIterations}
         onMaxIterationsChange={setMaxIterations}
         searchEngine={searchEngine}
         onSearchEngineChange={setSearchEngine}
         tavilyKey={tavilyKey}
         onTavilyKeyChange={setTavilyKey}
-        catalog={catalog}
-        catalogError={catalogError}
+        catalog={provider === 'ollama' ? ollamaCatalog : catalog}
+        catalogLoaded={provider !== 'ollama' || ollamaLoaded}
+        catalogError={provider === 'ollama' ? ollamaError : catalogError}
         embeddingCatalog={embeddingCatalog}
         embeddingCatalogError={embeddingCatalogError}
       />

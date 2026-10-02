@@ -1,15 +1,21 @@
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_ollama import ChatOllama
 from langchain_openrouter import ChatOpenRouter
 
 DEFAULT_PLANNER = "openai/gpt-5-mini"
 DEFAULT_EXTRACTOR = "google/gemini-3.1-flash-lite"
 DEFAULT_WRITER = "anthropic/claude-sonnet-5"
 
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+
 
 @dataclass(frozen=True)
 class ModelSelection:
+    provider: str
     api_key: str
     planner: str
     extractor: str
@@ -31,20 +37,24 @@ def reset_selection(token: Token) -> None:
 def current_selection() -> ModelSelection:
     selection = _selection.get()
     if selection is None:
-        raise RuntimeError("OpenRouter key and models were not set for this run")
+        raise RuntimeError("Models were not set for this run")
     return selection
 
 
-def planner_llm() -> ChatOpenRouter:
+def chat_llm(model: str) -> BaseChatModel:
     selection = current_selection()
-    return ChatOpenRouter(model=selection.planner, api_key=selection.api_key)
+    if selection.provider == "ollama":
+        return ChatOllama(model=model, base_url=OLLAMA_BASE_URL, reasoning=False)
+    return ChatOpenRouter(model=model, api_key=selection.api_key)
 
 
-def extractor_llm() -> ChatOpenRouter:
-    selection = current_selection()
-    return ChatOpenRouter(model=selection.extractor, api_key=selection.api_key)
+def planner_llm() -> BaseChatModel:
+    return chat_llm(current_selection().planner)
 
 
-def writer_llm() -> ChatOpenRouter:
-    selection = current_selection()
-    return ChatOpenRouter(model=selection.writer, api_key=selection.api_key)
+def extractor_llm() -> BaseChatModel:
+    return chat_llm(current_selection().extractor)
+
+
+def writer_llm() -> BaseChatModel:
+    return chat_llm(current_selection().writer)

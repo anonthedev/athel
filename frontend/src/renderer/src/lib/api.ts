@@ -1,4 +1,4 @@
-import type { ModelChoice, SearchEngine } from '@/lib/settings'
+import type { ModelChoice, Provider, SearchEngine } from '@/lib/settings'
 
 const API = 'http://127.0.0.1:8000'
 
@@ -6,6 +6,7 @@ export type OpenRouterModel = {
   id: string
   name: string
   tools: boolean
+  embedding?: boolean
 }
 
 export class ApiError extends Error {
@@ -47,6 +48,7 @@ export type ResearchEvent =
   | { type: 'error'; message: string }
 
 type ResearchAuth = {
+  provider: Provider
   apiKey: string
   models: ModelChoice
   tavilyKey: string
@@ -85,6 +87,12 @@ export async function listEmbeddingModels(apiKey: string, signal?: AbortSignal):
   return response.json() as Promise<OpenRouterModel[]>
 }
 
+export async function listOllamaModels(signal?: AbortSignal): Promise<OpenRouterModel[]> {
+  const response = await fetch(`${API}/ollama/models`, { signal })
+  if (!response.ok) throw new ApiError(response.status, await errorMessage(response, 'Could not load Ollama models'))
+  return response.json() as Promise<OpenRouterModel[]>
+}
+
 export async function listModels(signal?: AbortSignal): Promise<OpenRouterModel[]> {
   const response = await fetch(`${API}/models`, { signal })
   if (!response.ok) throw new ApiError(response.status, await errorMessage(response, 'Could not load OpenRouter models'))
@@ -105,7 +113,8 @@ export async function checkOpenRouterKey(apiKey: string, signal?: AbortSignal): 
 
 function researchBody(options: ResearchAuth): Record<string, string> {
   return {
-    api_key: options.apiKey,
+    provider: options.provider,
+    api_key: options.provider === 'ollama' ? '' : options.apiKey,
     planner_model: options.models.planner,
     extractor_model: options.models.extractor,
     writer_model: options.models.writer,

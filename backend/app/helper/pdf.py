@@ -16,6 +16,8 @@ _NEXT_WORD = re.compile(r"^([A-Za-z]+)([^\w\s]*)")
 
 
 def pdf_excerpt(data: bytes, question: str) -> str:
+    if not _embedding_model():
+        return ""
     try:
         doc = pymupdf.open(stream=data, filetype="pdf")
     except Exception:
@@ -42,24 +44,46 @@ def _unit(vector: list[float]) -> list[float]:
     return [value / norm for value in vector]
 
 
-def _openrouter_embeddings(texts: list[str]) -> list[list[float]] | None:
+def embedding_configured() -> bool:
+    return bool(_embedding_model())
+
+
+def _embedding_model() -> str:
     from app.llm import current_selection
+
+    try:
+        return current_selection().embedding.strip()
+    except RuntimeError:
+        return ""
+
+
+def _embeddings(texts: list[str]) -> list[list[float]] | None:
+    from app.llm import OLLAMA_BASE_URL, OPENROUTER_BASE_URL, current_selection
 
     if not texts:
         return []
+    model = _embedding_model()
+    if not model:
+        return None
     try:
         selection = current_selection()
     except RuntimeError:
         return None
+    if selection.provider == "ollama":
+        url = f"{OLLAMA_BASE_URL}/v1/embeddings"
+        token = "ollama"
+    else:
+        url = f"{OPENROUTER_BASE_URL}/embeddings"
+        token = selection.api_key
     ordered: list[list[float] | None] = [None] * len(texts)
     for offset in range(0, len(texts), 64):
         batch = texts[offset : offset + 64]
-        payload = json.dumps({"model": selection.embedding, "input": batch}).encode()
+        payload = json.dumps({"model": model, "input": batch}).encode()
         request = urllib.request.Request(
-            "https://openrouter.ai/api/v1/embeddings",
+            url,
             data=payload,
             headers={
-                "Authorization": f"Bearer {selection.api_key}",
+                "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },
@@ -97,7 +121,7 @@ def excerpt_pages(pages: list[tuple[int, str]], question: str) -> str:
     if not prepared:
         return ""
     passages = _passages(prepared)
-    vectors = _openrouter_embeddings([question, *(text for _, _, _, text in passages)])
+    vectors = _embeddings([question, *(text for _, _, _, text in passages)])
     if not vectors or len(vectors) != len(passages) + 1:
         return ""
     query = vectors[0]

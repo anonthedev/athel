@@ -87,14 +87,14 @@ export function QuestionReview({
         </h2>
         <span className="shrink-0 text-sm text-muted-foreground">Review questions</span>
         <div className="ml-auto flex items-center gap-1">
-          <button
+          {/* <button
             type="button"
             className="inline-flex h-8 items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={onOpenSettings}
           >
             Settings
-          </button>
-          <Button type="button" variant="outline" size="sm" onClick={onAbort}>
+          </button> */}
+          <Button type="button" variant="destructive" size="sm" onClick={onAbort}>
             Abort
           </Button>
         </div>
@@ -158,7 +158,7 @@ export function QuestionReview({
         </div>
       </div>
       <footer className="border-t">
-        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3 px-8 py-3">
+        <div className="mx-auto flex h-12 w-full max-w-2xl items-center justify-between gap-3 px-8">
           <p className="text-sm text-muted-foreground">
             {ready.length === 0
               ? 'Add at least one question'

@@ -9,7 +9,7 @@ from ddgs import DDGS
 from ddgs.exceptions import DDGSException
 from tavily import TavilyClient
 from urllib.parse import urljoin, urlparse
-from app.helper.pdf import pdf_excerpt
+from app.helper.pdf import embedding_configured, pdf_excerpt
 
 _tavily_key: ContextVar[str] = ContextVar("tavily_api_key", default="")
 HTML_LIMIT = 12_000
@@ -57,7 +57,7 @@ def load_text(url: str, question: str) -> tuple[str, str] | None:
     html = response.data.decode("utf-8", errors="replace")
     text = extract(html, url=source) or ""
     pdf_url = citation_pdf_url(html, source)
-    if pdf_url and pdf_url != source:
+    if pdf_url and pdf_url != source and embedding_configured():
         hopped = fetch_response(pdf_url)
         if hopped and hopped.status == 200 and hopped.data and is_pdf(hopped.data):
             excerpt = pdf_excerpt(hopped.data, question)

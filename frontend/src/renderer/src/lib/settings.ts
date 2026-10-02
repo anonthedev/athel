@@ -1,8 +1,13 @@
 const keyStorage = 'deep-research.openrouter-api-key'
+const providerStorage = 'deep-research.provider'
 const plannerStorage = 'deep-research.planner-model'
 const extractorStorage = 'deep-research.extractor-model'
 const writerStorage = 'deep-research.writer-model'
 const embeddingStorage = 'deep-research.embedding-model'
+const ollamaPlannerStorage = 'deep-research.ollama.planner-model'
+const ollamaExtractorStorage = 'deep-research.ollama.extractor-model'
+const ollamaWriterStorage = 'deep-research.ollama.writer-model'
+const ollamaEmbeddingStorage = 'deep-research.ollama.embedding-model'
 const iterationsStorage = 'deep-research.max-iterations'
 const searchEngineStorage = 'deep-research.search-engine'
 const tavilyKeyStorage = 'deep-research.tavily-api-key'
@@ -23,9 +28,34 @@ export type ModelChoice = {
 
 export type SearchEngine = 'tavily' | 'duckduckgo'
 
+export type Provider = 'openrouter' | 'ollama'
+
+export const emptyOllamaModels: ModelChoice = {
+  planner: '',
+  extractor: '',
+  writer: '',
+  embedding: ''
+}
+
+export function fillOllamaModels(
+  current: ModelChoice,
+  catalog: { id: string; tools: boolean; embedding?: boolean }[]
+): ModelChoice {
+  const chat = catalog.find((model) => model.tools)
+  const embed = catalog.find((model) => model.embedding)
+  return {
+    planner: current.planner || chat?.id || '',
+    extractor: current.extractor || chat?.id || '',
+    writer: current.writer || chat?.id || '',
+    embedding: current.embedding || embed?.id || ''
+  }
+}
+
 export type ResearchSettings = {
+  provider: Provider
   apiKey: string
   models: ModelChoice
+  ollamaModels: ModelChoice
   maxIterations: number
   searchEngine: SearchEngine
   tavilyKey: string
@@ -55,15 +85,26 @@ function readSearchEngine(tavilyKey: string): SearchEngine {
   return 'duckduckgo'
 }
 
+function readProvider(): Provider {
+  return readItem(providerStorage) === 'ollama' ? 'ollama' : 'openrouter'
+}
+
 export function readSettings(): ResearchSettings {
   const tavilyKey = readItem(tavilyKeyStorage)
   return {
+    provider: readProvider(),
     apiKey: readItem(keyStorage),
     models: {
       planner: readItem(plannerStorage) || defaultModels.planner,
       extractor: readItem(extractorStorage) || defaultModels.extractor,
       writer: readItem(writerStorage) || defaultModels.writer,
       embedding: readItem(embeddingStorage) || defaultModels.embedding
+    },
+    ollamaModels: {
+      planner: readItem(ollamaPlannerStorage),
+      extractor: readItem(ollamaExtractorStorage),
+      writer: readItem(ollamaWriterStorage),
+      embedding: readItem(ollamaEmbeddingStorage)
     },
     maxIterations: readIterations(),
     searchEngine: readSearchEngine(tavilyKey),
@@ -73,11 +114,16 @@ export function readSettings(): ResearchSettings {
 
 export function writeSettings(settings: ResearchSettings): void {
   try {
+    localStorage.setItem(providerStorage, settings.provider)
     localStorage.setItem(keyStorage, settings.apiKey)
     localStorage.setItem(plannerStorage, settings.models.planner)
     localStorage.setItem(extractorStorage, settings.models.extractor)
     localStorage.setItem(writerStorage, settings.models.writer)
     localStorage.setItem(embeddingStorage, settings.models.embedding)
+    localStorage.setItem(ollamaPlannerStorage, settings.ollamaModels.planner)
+    localStorage.setItem(ollamaExtractorStorage, settings.ollamaModels.extractor)
+    localStorage.setItem(ollamaWriterStorage, settings.ollamaModels.writer)
+    localStorage.setItem(ollamaEmbeddingStorage, settings.ollamaModels.embedding)
     localStorage.setItem(iterationsStorage, String(settings.maxIterations))
     localStorage.setItem(searchEngineStorage, settings.searchEngine)
     localStorage.setItem(tavilyKeyStorage, settings.tavilyKey)

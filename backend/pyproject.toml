@@ -11,6 +11,7 @@ dependencies = [
     "duckduckgo-search>=8.1.1",
     "fastapi>=0.141.1",
     "langchain-core>=1.6.5",
+    "langchain-ollama>=0.3.0",
     "langchain-openrouter>=0.2.9",
     "langgraph>=1.2.12",
     "pydantic>=2.12.5",

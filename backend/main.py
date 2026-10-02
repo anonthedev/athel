@@ -7,6 +7,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
@@ -21,7 +22,7 @@ from langgraph.types import Command
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 from app.graph import graph
-from app.llm import ModelSelection, reset_selection, use_selection
+from app.llm import OLLAMA_BASE_URL, ModelSelection, reset_selection, use_selection
 from app.nodes.search import reset_tavily_key, use_tavily_key
 
 dotenv.load_dotenv()
@@ -37,6 +38,7 @@ app.add_middleware(
 
 REPORTS = Path(os.environ.get("DEEP_RESEARCH_REPORTS", Path(__file__).resolve().parent / "reports"))
 MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}/[A-Za-z0-9][A-Za-z0-9._:@+-]{0,160}$")
+OLLAMA_MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,200}$")
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 KEY_URL = "https://openrouter.ai/api/v1/key"
 _models_cache: tuple[float, list["CatalogModel"]] | None = None
@@ -60,6 +62,57 @@ def require_model(value: str) -> str:
     return value
 
 
+def require_provider(value: str) -> str:
+    value = value.strip().lower()
+    if value not in ("openrouter", "ollama"):
+        raise ValueError("Choose OpenRouter or Ollama")
+    return value
+
+
+def require_ollama_model(value: str) -> str:
+    value = value.strip()
+    if not OLLAMA_MODEL.fullmatch(value):
+        raise ValueError("Choose an Ollama model")
+    return value
+
+
+def optional_embedding(value: str, provider: str) -> str:
+    value = value.strip()
+    if not value:
+        return ""
+    if provider == "ollama":
+        return require_ollama_model(value)
+    return require_model(value)
+
+
+def normalize_run_models(
+    provider: str,
+    api_key: str,
+    planner: str,
+    extractor: str,
+    writer: str,
+    embedding: str,
+) -> tuple[str, str, str, str, str, str]:
+    provider = require_provider(provider)
+    if provider == "ollama":
+        return (
+            provider,
+            "",
+            require_ollama_model(planner),
+            require_ollama_model(extractor),
+            require_ollama_model(writer),
+            optional_embedding(embedding, provider),
+        )
+    return (
+        provider,
+        require_api_key(api_key),
+        require_model(planner),
+        require_model(extractor),
+        require_model(writer),
+        optional_embedding(embedding, provider),
+    )
+
+
 def require_search_engine(value: str) -> str:
     value = value.strip().lower()
     if value not in ("tavily", "duckduckgo"):
@@ -77,37 +130,72 @@ def normalize_tavily_key(value: str) -> str:
 
 
 ApiKey = Annotated[str, AfterValidator(require_api_key)]
-ModelId = Annotated[str, AfterValidator(require_model)]
 SearchEngine = Annotated[str, AfterValidator(require_search_engine)]
 TavilyKey = Annotated[str, AfterValidator(normalize_tavily_key)]
 
 
 class ResearchRequest(BaseModel):
     topic: str = Field(min_length=1)
-    api_key: ApiKey
-    planner_model: ModelId
-    extractor_model: ModelId
-    writer_model: ModelId
-    embedding_model: ModelId
+    provider: str = "openrouter"
+    api_key: str = ""
+    planner_model: str
+    extractor_model: str
+    writer_model: str
+    embedding_model: str
     thread_id: str = Field(min_length=1)
     max_iterations: int = Field(default=3, ge=1, le=10)
     search_engine: SearchEngine = "duckduckgo"
     tavily_api_key: TavilyKey = ""
 
     @model_validator(mode="after")
-    def tavily_needs_a_key(self):
+    def normalize(self):
+        (
+            self.provider,
+            self.api_key,
+            self.planner_model,
+            self.extractor_model,
+            self.writer_model,
+            self.embedding_model,
+        ) = normalize_run_models(
+            self.provider,
+            self.api_key,
+            self.planner_model,
+            self.extractor_model,
+            self.writer_model,
+            self.embedding_model,
+        )
         if self.search_engine == "tavily" and not self.tavily_api_key:
             raise ValueError("Add a Tavily API key")
         return self
 
 class ResumeRequest(BaseModel):
     questions: list[str] = Field(min_length=1, max_length=7)
-    api_key: ApiKey
-    planner_model: ModelId
-    extractor_model: ModelId
-    writer_model: ModelId
-    embedding_model: ModelId
+    provider: str = "openrouter"
+    api_key: str = ""
+    planner_model: str
+    extractor_model: str
+    writer_model: str
+    embedding_model: str
     tavily_api_key: TavilyKey = ""
+
+    @model_validator(mode="after")
+    def normalize(self):
+        (
+            self.provider,
+            self.api_key,
+            self.planner_model,
+            self.extractor_model,
+            self.writer_model,
+            self.embedding_model,
+        ) = normalize_run_models(
+            self.provider,
+            self.api_key,
+            self.planner_model,
+            self.extractor_model,
+            self.writer_model,
+            self.embedding_model,
+        )
+        return self
 
 class KeyCheck(BaseModel):
     api_key: ApiKey
@@ -117,12 +205,24 @@ class CatalogModel(BaseModel):
     id: str
     name: str
     tools: bool
+    embedding: bool = False
 
 
 class ReportSummary(BaseModel):
     slug: str
     title: str
     updated_at: datetime
+
+
+def selection_for(body: ResearchRequest | ResumeRequest) -> ModelSelection:
+    return ModelSelection(
+        provider=body.provider,
+        api_key=body.api_key,
+        planner=body.planner_model,
+        extractor=body.extractor_model,
+        writer=body.writer_model,
+        embedding=body.embedding_model,
+    )
 
 
 def initial_state(topic: str, max_iterations: int, search_engine: str) -> dict:
@@ -402,13 +502,7 @@ async def research(body: ResearchRequest, request: Request):
     control = begin_run(body.thread_id)
 
     def run():
-        token = use_selection(ModelSelection(
-            api_key=body.api_key,
-            planner=body.planner_model,
-            extractor=body.extractor_model,
-            writer=body.writer_model,
-            embedding=body.embedding_model,
-        ))
+        token = use_selection(selection_for(body))
         tavily_token = use_tavily_key(body.tavily_api_key)
         try:
             report = drive(
@@ -454,13 +548,7 @@ async def resume_research(thread_id: str, body: ResumeRequest, request: Request)
     control = begin_run(thread_id)
 
     def run():
-        token = use_selection(ModelSelection(
-            api_key=body.api_key,
-            planner=body.planner_model,
-            extractor=body.extractor_model,
-            writer=body.writer_model,
-            embedding=body.embedding_model,
-        ))
+        token = use_selection(selection_for(body))
         tavily_token = use_tavily_key(body.tavily_api_key)
         try:
             report = drive(
@@ -525,9 +613,78 @@ def read_report(slug: str):
         raise HTTPException(status_code=404, detail="Report not found")
     return FileResponse(path, media_type="text/markdown")
 
+def _ollama_json(url: str, payload: dict | None = None, timeout: float = 5) -> dict:
+    data = None if payload is None else json.dumps(payload).encode()
+    request = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        method="GET" if payload is None else "POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        body = json.load(response)
+    if not isinstance(body, dict):
+        raise ValueError("Ollama returned an unexpected response")
+    return body
+
+
+def classify_ollama(name: str, family: str, capabilities: list | None) -> tuple[bool, bool]:
+    if capabilities:
+        caps = {str(item) for item in capabilities}
+        return "tools" in caps, "embedding" in caps
+    embedding = "embed" in name.casefold() or "embed" in family.casefold()
+    return not embedding, embedding
+
+
+def describe_ollama_model(name: str, family: str) -> CatalogModel:
+    capabilities = None
+    try:
+        shown = _ollama_json(f"{OLLAMA_BASE_URL}/api/show", {"model": name})
+        caps = shown.get("capabilities")
+        if isinstance(caps, list):
+            capabilities = caps
+        if not family:
+            details = shown.get("details")
+            if isinstance(details, dict) and isinstance(details.get("family"), str):
+                family = details["family"]
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError, ValueError):
+        capabilities = None
+    tools, embedding = classify_ollama(name, family, capabilities)
+    return CatalogModel(id=name, name=name, tools=tools, embedding=embedding)
+
+
+def ollama_catalog() -> list[CatalogModel]:
+    try:
+        payload = _ollama_json(f"{OLLAMA_BASE_URL}/api/tags", timeout=3)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError, ValueError):
+        raise HTTPException(status_code=503, detail="Ollama isn't running on this computer") from None
+    raw = payload.get("models")
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=503, detail="Ollama isn't running on this computer")
+    entries: list[tuple[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name") or item.get("model")
+        if not isinstance(name, str) or not OLLAMA_MODEL.fullmatch(name):
+            continue
+        details = item.get("details") if isinstance(item.get("details"), dict) else {}
+        family = details.get("family") if isinstance(details.get("family"), str) else ""
+        entries.append((name, family))
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        models = list(pool.map(lambda entry: describe_ollama_model(*entry), entries))
+    models.sort(key=lambda model: model.name.casefold())
+    return models
+
+
 @app.get("/models")
 def list_models() -> list[CatalogModel]:
     return catalog_models()
+
+
+@app.get("/ollama/models")
+def list_ollama_models() -> list[CatalogModel]:
+    return ollama_catalog()
 
 
 @app.post("/embedding-models")

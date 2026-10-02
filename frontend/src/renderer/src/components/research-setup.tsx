@@ -20,7 +20,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { ApiError, checkOpenRouterKey, type OpenRouterModel } from '@/lib/api'
-import { hasTavilyKey, type ModelChoice, type SearchEngine } from '@/lib/settings'
+import { hasTavilyKey, type ModelChoice, type Provider, type SearchEngine } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 
 type KeyStatus = 'idle' | 'checking' | 'accepted' | 'rejected' | 'invalid' | 'unreachable'
@@ -32,6 +32,8 @@ type KeyProps = {
 }
 
 type ResearchOptionsProps = KeyProps & {
+  provider: Provider
+  onProviderChange: (value: Provider) => void
   models: ModelChoice
   onModelsChange: (models: ModelChoice) => void
   maxIterations: number
@@ -41,6 +43,7 @@ type ResearchOptionsProps = KeyProps & {
   tavilyKey: string
   onTavilyKeyChange: (value: string) => void
   catalog: OpenRouterModel[]
+  catalogLoaded?: boolean
   catalogError: string | null
   embeddingCatalog: OpenRouterModel[]
   embeddingCatalogError: string | null
@@ -270,7 +273,7 @@ function TavilyKeyField({
   )
 }
 
-export function ApiKeyPrompt(props: KeyProps): React.JSX.Element {
+export function ApiKeyPrompt({ onUseLocal, ...props }: KeyProps & { onUseLocal: () => void }): React.JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="my-auto flex w-full max-w-md flex-col gap-6 self-center px-8 py-10">
@@ -281,6 +284,13 @@ export function ApiKeyPrompt(props: KeyProps): React.JSX.Element {
           </p>
         </div>
         <ApiKeyField {...props} autoFocus />
+        <button
+          type="button"
+          className="self-start text-sm text-muted-foreground underline decoration-primary underline-offset-2 hover:text-foreground"
+          onClick={onUseLocal}
+        >
+          Use a model on this computer
+        </button>
       </div>
     </div>
   )
@@ -339,7 +349,9 @@ function ModelField({
             {(model: OpenRouterModel) => (
               <ComboboxItem key={model.id} value={model}>
                 <span className="min-w-0 flex-1 truncate">{model.name}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">{model.id.split('/')[0]}</span>
+                {model.id.includes('/') ? (
+                  <span className="shrink-0 text-xs text-muted-foreground">{model.id.split('/')[0]}</span>
+                ) : null}
               </ComboboxItem>
             )}
           </ComboboxList>
@@ -364,6 +376,8 @@ export function SettingsDialog({
   apiKey,
   onApiKeyChange,
   status,
+  provider,
+  onProviderChange,
   models,
   onModelsChange,
   maxIterations,
@@ -373,6 +387,7 @@ export function SettingsDialog({
   tavilyKey,
   onTavilyKeyChange,
   catalog,
+  catalogLoaded = true,
   catalogError,
   embeddingCatalog,
   embeddingCatalogError
@@ -382,22 +397,34 @@ export function SettingsDialog({
 }): React.JSX.Element {
   const [needsTavilyKey, setNeedsTavilyKey] = useState(false)
   const tavilyRef = useRef<HTMLInputElement>(null)
-  const plannerModels = useMemo(
-    () => choicesFor(catalog, models.planner, true),
-    [catalog, models.planner]
-  )
-  const extractorModels = useMemo(
-    () => choicesFor(catalog, models.extractor, true),
-    [catalog, models.extractor]
-  )
-  const writerModels = useMemo(
-    () => choicesFor(catalog, models.writer, false),
-    [catalog, models.writer]
-  )
-  const embeddingModels = useMemo(
-    () => choicesFor(embeddingCatalog, models.embedding, false),
-    [embeddingCatalog, models.embedding]
-  )
+  const plannerModels = useMemo(() => {
+    const source = provider === 'ollama' ? catalog.filter((model) => model.tools) : catalog
+    return choicesFor(source, models.planner, provider !== 'ollama')
+  }, [catalog, models.planner, provider])
+  const extractorModels = useMemo(() => {
+    const source = provider === 'ollama' ? catalog.filter((model) => model.tools) : catalog
+    return choicesFor(source, models.extractor, provider !== 'ollama')
+  }, [catalog, models.extractor, provider])
+  const writerModels = useMemo(() => {
+    const source = provider === 'ollama' ? catalog.filter((model) => !model.embedding) : catalog
+    return choicesFor(source, models.writer, false)
+  }, [catalog, models.writer, provider])
+  const embeddingModels = useMemo(() => {
+    const source = provider === 'ollama' ? catalog.filter((model) => model.embedding) : embeddingCatalog
+    return choicesFor(source, models.embedding, false)
+  }, [catalog, embeddingCatalog, models.embedding, provider])
+  const ollamaToolCount = provider === 'ollama' ? catalog.filter((model) => model.tools).length : 0
+  const ollamaEmbedCount = provider === 'ollama' ? catalog.filter((model) => model.embedding).length : 0
+  const ollamaNotice =
+    provider !== 'ollama' || catalogError || !catalogLoaded
+      ? null
+      : catalog.length === 0
+        ? 'No Ollama models are installed.'
+        : ollamaToolCount === 0
+          ? 'None of the installed models can call tools. Planner and extractor need one.'
+          : ollamaEmbedCount === 0
+            ? 'No embedding model is installed, so PDFs are skipped.'
+            : null
 
   function chooseSearch(value: string): void {
     if (value === 'duckduckgo') {
@@ -440,6 +467,7 @@ export function SettingsDialog({
         <SettingsSection title="Search">
           <RadioGroup value={searchEngine} onValueChange={chooseSearch} aria-label="Search" className="gap-2">
             <SearchChoice
+              group="search"
               value="duckduckgo"
               title="DuckDuckGo"
               detail="Searches without an extra key."
@@ -447,6 +475,7 @@ export function SettingsDialog({
               onSelect={chooseSearch}
             />
             <SearchChoice
+              group="search"
               value="tavily"
               title="Tavily"
               detail="Uses the Tavily key above."
@@ -489,6 +518,31 @@ export function SettingsDialog({
           </div>
         </SettingsSection>
         <SettingsSection title="Models">
+          <RadioGroup
+            value={provider}
+            onValueChange={(value) => {
+              if (value === 'openrouter' || value === 'ollama') onProviderChange(value)
+            }}
+            aria-label="Model source"
+            className="gap-2"
+          >
+            <SearchChoice
+              group="provider"
+              value="openrouter"
+              title="OpenRouter"
+              detail="Uses the key above."
+              selected={provider === 'openrouter'}
+              onSelect={(value) => onProviderChange(value === 'ollama' ? 'ollama' : 'openrouter')}
+            />
+            <SearchChoice
+              group="provider"
+              value="ollama"
+              title="Ollama"
+              detail="Uses models installed on this computer."
+              selected={provider === 'ollama'}
+              onSelect={(value) => onProviderChange(value === 'ollama' ? 'ollama' : 'openrouter')}
+            />
+          </RadioGroup>
           <ModelField
             id="planner-model"
             label="Planner"
@@ -516,13 +570,16 @@ export function SettingsDialog({
           <ModelField
             id="embedding-model"
             label="Embedding"
-            hint="Ranks pages inside PDFs."
+            hint="Ranks pages inside PDFs. Without one, PDFs are skipped."
             models={embeddingModels}
             value={models.embedding}
             onChange={(embedding) => onModelsChange({ ...models, embedding })}
           />
           {catalogError ? <p className="text-sm text-destructive">{catalogError}</p> : null}
-          {embeddingCatalogError ? <p className="text-sm text-destructive">{embeddingCatalogError}</p> : null}
+          {ollamaNotice ? <p className="text-sm text-muted-foreground">{ollamaNotice}</p> : null}
+          {provider === 'openrouter' && embeddingCatalogError ? (
+            <p className="text-sm text-destructive">{embeddingCatalogError}</p>
+          ) : null}
         </SettingsSection>
       </DialogContent>
     </Dialog>
@@ -530,12 +587,14 @@ export function SettingsDialog({
 }
 
 function SearchChoice({
+  group,
   value,
   title,
   detail,
   selected,
   onSelect
 }: {
+  group: string
   value: string
   title: string
   detail: string
@@ -545,21 +604,20 @@ function SearchChoice({
   return (
     <div
       className={cn(
-        'flex cursor-pointer items-start gap-3 rounded-lg border p-3',
+        'flex cursor-pointer items-center gap-3 rounded-lg border p-3',
         selected ? 'border-primary bg-accent/70' : 'hover:bg-muted'
       )}
       onClick={() => onSelect(value)}
     >
       <RadioGroupItem
-        id={`search-${value}`}
+        id={`${group}-${value}`}
         value={value}
         aria-label={title}
-        aria-describedby={`search-${value}-detail`}
-        className="mt-0.5"
+        aria-describedby={`${group}-${value}-detail`}
       />
       <span>
         <span className="block text-sm">{title}</span>
-        <span id={`search-${value}-detail`} className="mt-0.5 block text-sm text-muted-foreground">
+        <span id={`${group}-${value}-detail`} className="mt-0.5 block text-sm text-muted-foreground">
           {detail}
         </span>
       </span>
