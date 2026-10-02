@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Athel — One question. A sourced report.</title>
+    <meta
+      name="description"
+      content="Athel is a desktop app. Ask one question, edit the research questions, and get a Markdown report that cites every line."
+    />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2308080a'/%3E%3Crect x='7' y='14' width='18' height='4' rx='2' fill='%23e2ff4d'/%3E%3C/svg%3E" />
+    <style>
+      @font-face {
+        font-family: Geist;
+        src: url("fonts/geist.woff2") format("woff2");
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: swap;
+      }
+
+      :root {
+        --bg: #08080a;
+        --ink: #f4f4f1;
+        --muted: #9a9a94;
+        --dim: #6f6f6a;
+        --acid: #e2ff4d;
+        --strike: #ff3b30;
+        --line: rgba(255, 255, 255, 0.14);
+        --line-soft: rgba(255, 255, 255, 0.08);
+        --window: #101012;
+        --card: #17171a;
+        --ease: cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      * { box-sizing: border-box; }
+
+      html { scroll-behavior: smooth; }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Geist, Inter, sans-serif;
+        font-weight: 450;
+        line-height: 1.45;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: geometricPrecision;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image: radial-gradient(rgba(255, 255, 255, 0.22) 1.1px, transparent 1.2px);
+        background-size: 32px 32px;
+        opacity: 0.16;
+        mask-image: radial-gradient(circle at 30% 20%, #000 10%, transparent 68%);
+      }
+
+      ::selection {
+        background: var(--acid);
+        color: #14140f;
+      }
+
+      a { color: inherit; }
+
+      a:focus-visible,
+      button:focus-visible {
+        outline: 2px solid var(--acid);
+        outline-offset: 3px;
+      }
+
+      .wrap {
+        width: min(1120px, calc(100% - 48px));
+        margin-inline: auto;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 28px 0 0;
+        position: relative;
+        z-index: 1;
+      }
+
+      .logo {
+        font-size: 22px;
+        font-weight: 560;
+        letter-spacing: -0.05em;
+        text-decoration: none;
+      }
+
+      header nav {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+      }
+
+      header nav a {
+        text-decoration: none;
+        font-size: 15px;
+        color: var(--muted);
+      }
+
+      header nav a:hover { color: var(--ink); }
+
+      .nav-dl {
+        color: var(--ink) !important;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 8px 14px;
+      }
+
+      .hero {
+        position: relative;
+        z-index: 1;
+        min-height: calc(100vh - 72px);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 72px 0 96px;
+      }
+
+      .glow {
+        position: absolute;
+        width: min(720px, 80vw);
+        height: 520px;
+        left: -80px;
+        top: 10%;
+        background: radial-gradient(circle, rgba(226, 255, 77, 0.16), transparent 64%);
+        filter: blur(8px);
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      .kicker {
+        position: relative;
+        z-index: 1;
+        margin: 0 0 28px;
+        font-size: 14px;
+        font-weight: 620;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+
+      .struck {
+        position: relative;
+        display: inline-block;
+      }
+
+      .struck::after {
+        content: "";
+        position: absolute;
+        left: -6px;
+        right: -10px;
+        top: 54%;
+        height: 3px;
+        border-radius: 3px;
+        background: var(--strike);
+        box-shadow: 0 0 18px rgba(255, 59, 48, 0.45);
+        transform-origin: left center;
+        animation: slash 0.42s var(--ease) 0.12s both;
+      }
+
+      h1 {
+        position: relative;
+        z-index: 1;
+        margin: 0;
+        font-size: clamp(76px, 11vw, 168px);
+        font-weight: 560;
+        letter-spacing: -0.075em;
+        line-height: 0.84;
+      }
+
+      .subhead {
+        position: relative;
+        z-index: 1;
+        margin: 18px 0 0;
+        font-size: clamp(36px, 5vw, 64px);
+        font-weight: 520;
+        letter-spacing: -0.05em;
+        line-height: 1;
+      }
+
+      .acid {
+        position: relative;
+        z-index: 1;
+        margin: 28px 0 0;
+        color: var(--acid);
+        font-size: clamp(22px, 2.4vw, 32px);
+        font-weight: 520;
+        letter-spacing: -0.03em;
+      }
+
+      .lede {
+        position: relative;
+        z-index: 1;
+        max-width: 38rem;
+        margin: 22px 0 0;
+        color: #c8c8c2;
+        font-size: 18px;
+        line-height: 1.5;
+      }
+
+      .actions {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 36px;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 52px;
+        padding: 0 22px;
+        border-radius: 14px;
+        text-decoration: none;
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        transition: transform 140ms var(--ease), background 140ms var(--ease), border-color 140ms var(--ease);
+      }
+
+      .btn:hover { transform: translateY(-1px); }
+      .btn:active { transform: scale(0.97); }
+
+      .btn-primary {
+        background: var(--ink);
+        color: #14140f;
+      }
+
+      .btn-ghost {
+        border: 1px solid var(--line);
+        color: var(--ink);
+      }
+
+      .btn-ghost:hover { border-color: rgba(255, 255, 255, 0.32); }
+
+      section {
+        position: relative;
+        z-index: 1;
+        padding: 28px 0 88px;
+      }
+
+      .eyebrow {
+        margin: 0 0 14px;
+        font-size: 13px;
+        font-weight: 620;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      h2 {
+        margin: 0 0 28px;
+        font-size: clamp(36px, 5vw, 56px);
+        font-weight: 540;
+        letter-spacing: -0.05em;
+        line-height: 1;
+      }
+
+      .window {
+        background: var(--window);
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 30px 80px rgba(0, 0, 0, 0.35);
+        overflow: hidden;
+      }
+
+      .chrome {
+        height: 58px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 0 22px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .dots { display: flex; gap: 7px; }
+      .dots i {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #2e2e32;
+        display: block;
+      }
+
+      .brand {
+        font-size: 15px;
+        font-weight: 560;
+        letter-spacing: -0.03em;
+        color: #bdbdb8;
+      }
+
+      .pane { padding: 36px 32px 40px; }
+
+      .pane h3 {
+        margin: 0;
+        font-size: clamp(28px, 3vw, 40px);
+        font-weight: 540;
+        letter-spacing: -0.045em;
+        line-height: 1.05;
+      }
+
+      .q-list {
+        list-style: none;
+        margin: 28px 0 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      .q-row {
+        display: grid;
+        grid-template-columns: 40px minmax(0, 1fr) auto;
+        gap: 14px;
+        align-items: center;
+      }
+
+      .q-n {
+        color: var(--acid);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        font-size: 15px;
+      }
+
+      .q-t {
+        font-size: clamp(17px, 2vw, 22px);
+        font-weight: 500;
+        letter-spacing: -0.03em;
+      }
+
+      .q-src {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .pill {
+        font-size: 13px;
+        font-weight: 620;
+        letter-spacing: 0.03em;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: var(--acid);
+        color: #14140f;
+        white-space: nowrap;
+      }
+
+      .report-title {
+        font-size: clamp(32px, 4vw, 52px);
+        font-weight: 560;
+        letter-spacing: -0.05em;
+        line-height: 0.98;
+        margin: 0;
+      }
+
+      .body-line {
+        margin: 16px 0 0;
+        max-width: 46rem;
+        font-size: clamp(17px, 1.6vw, 20px);
+        letter-spacing: -0.02em;
+        line-height: 1.4;
+        color: #e7e7e2;
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 26px;
+      }
+
+      .chip {
+        font-size: 15px;
+        font-weight: 560;
+        letter-spacing: -0.02em;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(226, 255, 77, 0.12);
+        color: var(--acid);
+      }
+
+      .saved {
+        margin: 18px 0 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .beats {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        margin: 8px 0 0;
+        padding: 0;
+        list-style: none;
+        border-top: 1px solid var(--line-soft);
+      }
+
+      .beats li {
+        display: grid;
+        grid-template-columns: 72px 1fr;
+        gap: 12px;
+        align-items: baseline;
+        padding: 22px 0;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .beats strong {
+        display: block;
+        font-size: clamp(22px, 2.5vw, 28px);
+        font-weight: 540;
+        letter-spacing: -0.04em;
+      }
+
+      .beats span {
+        color: #c8c8c2;
+        font-size: 16px;
+      }
+
+      .idx {
+        color: var(--acid);
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+        font-size: 15px;
+      }
+
+      .downloads {
+        display: flex;
+        flex-direction: column;
+        border-top: 1px solid var(--line-soft);
+      }
+
+      .dl {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+        gap: 16px;
+        align-items: center;
+        padding: 20px 4px;
+        border-bottom: 1px solid var(--line-soft);
+        text-decoration: none;
+        transition: transform 180ms var(--ease);
+      }
+
+      .dl:hover { transform: translateX(6px); }
+      .dl:active { transform: scale(0.99); }
+
+      .dl b {
+        font-size: 20px;
+        font-weight: 540;
+        letter-spacing: -0.03em;
+      }
+
+      .dl em {
+        font-style: normal;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .dl-go {
+        font-size: 14px;
+        font-weight: 620;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--acid);
+      }
+
+      .note {
+        margin: 22px 0 0;
+        max-width: 42rem;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.5;
+      }
+
+      .note code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.92em;
+        color: var(--ink);
+      }
+
+      .note a { color: var(--ink); }
+
+      footer {
+        position: relative;
+        z-index: 1;
+        padding: 12px 0 48px;
+        color: var(--dim);
+        font-size: 14px;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      footer a { color: var(--muted); }
+
+      .hero > * { animation: rise 0.62s var(--ease) both; }
+      .hero .kicker { animation-delay: 0.02s; }
+      .hero h1 { animation-delay: 0.08s; }
+      .hero .subhead { animation-delay: 0.14s; }
+      .hero .acid { animation-delay: 0.2s; }
+      .hero .lede { animation-delay: 0.26s; }
+      .hero .actions { animation-delay: 0.32s; }
+
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(18px); }
+        to { opacity: 1; transform: none; }
+      }
+
+      @keyframes slash {
+        from { transform: scaleX(0); }
+        to { transform: scaleX(1); }
+      }
+
+      @media (max-width: 720px) {
+        .wrap { width: min(1120px, calc(100% - 32px)); }
+        .hero { min-height: auto; padding: 48px 0 64px; }
+        .q-row { grid-template-columns: 32px minmax(0, 1fr); }
+        .pill { grid-column: 2; justify-self: start; }
+        .dl { grid-template-columns: 1fr auto; }
+        .dl em { grid-column: 1; }
+        .beats li { grid-template-columns: 42px 1fr; }
+        .pane { padding: 28px 20px 32px; }
+        footer { flex-direction: column; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html { scroll-behavior: auto; }
+        .hero > *,
+        .struck::after { animation: none; }
+        .btn, .dl { transition: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="glow" aria-hidden="true"></div>
+    <div class="wrap">
+      <header>
+        <a class="logo" href="#top">Athel</a>
+        <nav>
+          <a href="https://github.com/anonthedev/athel">GitHub</a>
+          <a class="nav-dl" href="#download">Download</a>
+        </nav>
+      </header>
+
+      <main id="top">
+        <div class="hero">
+          <p class="kicker"><span class="struck">40 tabs</span></p>
+          <h1>One<br />question.</h1>
+          <p class="subhead">A sourced report.</p>
+          <p class="acid">You edit every question.</p>
+          <p class="lede">
+            Athel is a desktop app. It drafts the research questions and waits. You edit them.
+            Then it reads the pages and the PDFs and writes a Markdown report. Every line cites a source.
+            The file stays on this computer.
+          </p>
+          <div class="actions">
+            <a class="btn btn-primary" href="#download">Download</a>
+            <a class="btn btn-ghost" href="https://github.com/anonthedev/athel">GitHub</a>
+          </div>
+        </div>
+
+        <section>
+          <p class="eyebrow">Questions</p>
+          <h2>Edit them before the search.</h2>
+          <div class="window">
+            <div class="chrome">
+              <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="brand">Athel</span>
+            </div>
+            <div class="pane">
+              <p class="eyebrow">Questions</p>
+              <h3>Why did the shipping container change trade?</h3>
+              <ol class="q-list">
+                <li class="q-row">
+                  <span class="q-n">01</span>
+                  <div>
+                    <div class="q-t">Who built the first container ship?</div>
+                    <div class="q-src">loc.gov</div>
+                  </div>
+                  <span class="pill">Cited</span>
+                </li>
+                <li class="q-row">
+                  <span class="q-n">02</span>
+                  <div>
+                    <div class="q-t">What happened to dock work?</div>
+                    <div class="q-src">Levinson, The Box</div>
+                  </div>
+                  <span class="pill">Cited</span>
+                </li>
+                <li class="q-row">
+                  <span class="q-n">03</span>
+                  <div>
+                    <div class="q-t">How fast did freight cost fall?</div>
+                    <div class="q-src">World Bank</div>
+                  </div>
+                  <span class="pill">Cited</span>
+                </li>
+                <li class="q-row">
+                  <span class="q-n">04</span>
+                  <div>
+                    <div class="q-t">Which ports came out ahead?</div>
+                    <div class="q-src">Port of Newark</div>
+                  </div>
+                  <span class="pill">Cited</span>
+                </li>
+              </ol>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <p class="eyebrow">Then</p>
+          <h2>It reads, then it writes.</h2>
+          <ol class="beats">
+            <li>
+              <span class="idx">01</span>
+              <div>
+                <strong>You edit every question.</strong>
+                <span>Add one, cut one, rewrite one. The search does not start until you say so.</span>
+              </div>
+            </li>
+            <li>
+              <span class="idx">02</span>
+              <div>
+                <strong>It reads pages and PDFs.</strong>
+                <span>Each question is searched, the page is read, and a PDF is followed when the page points at one.</span>
+              </div>
+            </li>
+            <li>
+              <span class="idx">03</span>
+              <div>
+                <strong>Every line cites a source.</strong>
+                <span>The report uses the notes it collected. Names, dates, and numbers stay attached to the link they came from.</span>
+              </div>
+            </li>
+          </ol>
+        </section>
+
+        <section>
+          <p class="eyebrow">Report</p>
+          <h2>Saved on this computer.</h2>
+          <div class="window">
+            <div class="chrome">
+              <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="brand">Athel</span>
+            </div>
+            <div class="pane">
+              <p class="eyebrow">Report</p>
+              <h3 class="report-title">The box that rewired trade</h3>
+              <p class="body-line">On 26 April 1956, the Ideal X left Newark with 58 containers.</p>
+              <p class="body-line">Malcolm McLean’s box cut loading from days to hours.</p>
+              <p class="body-line">The report keeps the names, the dates, and a link on every sentence.</p>
+              <div class="chips">
+                <span class="chip">26 Apr 1956</span>
+                <span class="chip">58 containers</span>
+                <span class="chip">Newark → Houston</span>
+              </div>
+              <p class="saved">Saved on this computer</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="download">
+          <p class="eyebrow">On your desktop</p>
+          <h2>Download Athel</h2>
+          <div class="downloads">
+            <a class="dl" href="https://github.com/anonthedev/athel/releases/download/v0.0.5/Athel-0.0.5.dmg">
+              <b>macOS</b>
+              <em>Disk image · 0.0.5</em>
+              <span class="dl-go">Download</span>
+            </a>
+            <a class="dl" href="https://github.com/anonthedev/athel/releases/download/v0.0.5/Athel-0.0.5-arm64-mac.zip">
+              <b>macOS, Apple silicon</b>
+              <em>Zip · 0.0.5</em>
+              <span class="dl-go">Download</span>
+            </a>
+            <a class="dl" href="https://github.com/anonthedev/athel/releases/download/v0.0.5/Athel-0.0.5-setup.exe">
+              <b>Windows</b>
+              <em>Installer · 0.0.5</em>
+              <span class="dl-go">Download</span>
+            </a>
+            <a class="dl" href="https://github.com/anonthedev/athel/releases/download/v0.0.5/Athel-0.0.5.AppImage">
+              <b>Linux</b>
+              <em>AppImage · 0.0.5</em>
+              <span class="dl-go">Download</span>
+            </a>
+            <a class="dl" href="https://github.com/anonthedev/athel/releases/download/v0.0.5/Athel_0.0.5_amd64.deb">
+              <b>Debian and Ubuntu</b>
+              <em>.deb · 0.0.5</em>
+              <span class="dl-go">Download</span>
+            </a>
+          </div>
+          <p class="note">
+            Version 0.0.5. Older builds are on the
+            <a href="https://github.com/anonthedev/athel/releases">releases page</a>.
+            The Mac app is not notarized. If macOS refuses to open the disk image, run
+            <code>xattr -cr</code> on the file, then drag Athel into Applications.
+          </p>
+          <p class="note">
+            After it opens, add an OpenRouter key. The key stays on this computer.
+          </p>
+        </section>
+      </main>
+
+      <footer>
+        <span>Athel</span>
+        <a href="https://github.com/anonthedev/athel">github.com/anonthedev/athel</a>
+      </footer>
+    </div>
+  </body>
+</html>

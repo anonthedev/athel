@@ -48,3 +48,5 @@ yarn-error.log*
 backend/reports/
 backend/traces/
 *.log
+
+/promo
