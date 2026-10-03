@@ -3,12 +3,96 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Athel — One question. A sourced report.</title>
+    <title>Open source deep research desktop app | Athel</title>
     <meta
       name="description"
-      content="Athel is a desktop app. Ask one question, edit the research questions, and get a Markdown report that cites every line."
+      content="Open source deep research for your desktop. You edit every question, then keep a sourced report. BYOK with OpenRouter, or local models with Ollama."
     />
+    <meta name="application-name" content="Athel" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="theme-color" content="#08080a" />
+    <link rel="canonical" href="https://athel-research.vercel.app/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Athel" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://athel-research.vercel.app/" />
+    <meta property="og:title" content="Open source deep research desktop app | Athel" />
+    <meta
+      property="og:description"
+      content="Open source deep research for your desktop. You edit every question, then keep a sourced report. BYOK with OpenRouter, or local models with Ollama."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Open source deep research desktop app | Athel" />
+    <meta
+      name="twitter:description"
+      content="Open source deep research for your desktop. You edit every question, then keep a sourced report. BYOK with OpenRouter, or local models with Ollama."
+    />
+    <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM-readable summary" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2308080a'/%3E%3Crect x='7' y='14' width='18' height='4' rx='2' fill='%23e2ff4d'/%3E%3C/svg%3E" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://athel-research.vercel.app/#website",
+            "url": "https://athel-research.vercel.app/",
+            "name": "Athel",
+            "description": "Athel is a desktop app for deep research. The report is a file on your computer. BYOK with OpenRouter, or local models with Ollama.",
+            "publisher": { "@id": "https://athel-research.vercel.app/#app" }
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://athel-research.vercel.app/#app",
+            "name": "Athel",
+            "url": "https://athel-research.vercel.app/",
+            "applicationCategory": "DesktopApplication",
+            "operatingSystem": "macOS, Windows, Linux",
+            "license": "https://opensource.org/licenses/MIT",
+            "codeRepository": "https://github.com/anonthedev/athel",
+            "downloadUrl": "https://athel-research.vercel.app/#download",
+            "description": "Athel is a desktop app for deep research. The report is a file on your computer. BYOK with OpenRouter, or local models with Ollama.",
+            "featureList": [
+              "You edit the questions before the search",
+              "BYOK with OpenRouter",
+              "Local models with Ollama",
+              "A sourced report saved on your computer"
+            ],
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            }
+          },
+          {
+            "@type": "HowTo",
+            "@id": "https://athel-research.vercel.app/#how-to",
+            "name": "From your question to a sourced report",
+            "description": "You edit the questions. Athel reads the sources. You get a report you can check.",
+            "step": [
+              {
+                "@type": "HowToStep",
+                "position": 1,
+                "name": "You edit the questions.",
+                "text": "The search waits. Add one, cut one, rewrite one."
+              },
+              {
+                "@type": "HowToStep",
+                "position": 2,
+                "name": "Athel reads the sources.",
+                "text": "Athel searches each question, reads the page, and follows a PDF when the page points at one."
+              },
+              {
+                "@type": "HowToStep",
+                "position": 3,
+                "name": "You get a report you can check.",
+                "text": "Names, dates, and numbers stay attached to the link they came from."
+              }
+            ]
+          }
+        ]
+      }
+    </script>
     <style>
       @font-face {
         font-family: Geist;
@@ -426,6 +510,10 @@
         font-size: 16px;
       }
 
+      .beats a {
+        color: var(--ink);
+      }
+
       .idx {
         color: var(--acid);
         font-variant-numeric: tabular-nums;
@@ -546,6 +634,7 @@
       <header>
         <a class="logo" href="#top">Athel</a>
         <nav>
+          <a href="#models">Models</a>
           <a href="https://github.com/anonthedev/athel">GitHub</a>
           <a class="nav-dl" href="#download">Download</a>
         </nav>
@@ -553,24 +642,41 @@
 
       <main id="top">
         <div class="hero">
-          <!-- <p class="kicker"><span class="struck">40 tabs</span></p> -->
-          <h1>One<br />question.</h1>
-          <p class="subhead">A sourced report.</p>
+          <p class="kicker">Open source</p>
+          <h1>Deep<br />research.</h1>
+          <p class="subhead">One question. A sourced report.</p>
           <p class="acid">You edit every question.</p>
-          <p class="lede">
-            Athel is a desktop app. It drafts the research questions and waits. You edit them.
-            Then it reads the pages and the PDFs and writes a Markdown report. Every line cites a source.
-            The file stays on this computer.
-          </p>
+          <p class="lede">Athel is a desktop app for deep research. The report is a file on your computer.</p>
           <div class="actions">
-            <a class="btn btn-primary" href="#download">Download</a>
-            <a class="btn btn-ghost" href="https://github.com/anonthedev/athel">GitHub</a>
+            <a class="btn btn-primary" href="#download">Download the app</a>
+            <a class="btn btn-ghost" href="https://github.com/anonthedev/athel">View on GitHub</a>
           </div>
         </div>
 
+        <section id="models" aria-labelledby="models-title">
+          <p class="eyebrow">Models</p>
+          <h2 id="models-title">Two ways to run Athel.</h2>
+          <ul class="beats">
+            <li>
+              <span class="idx">01</span>
+              <div>
+                <strong>BYOK with OpenRouter.</strong>
+                <span>Your key stays on this computer.</span>
+              </div>
+            </li>
+            <li>
+              <span class="idx">02</span>
+              <div>
+                <strong>Local models with Ollama.</strong>
+                <span>They run on this computer. No API key.</span>
+              </div>
+            </li>
+          </ul>
+        </section>
+
         <section>
           <p class="eyebrow">Questions</p>
-          <h2>Edit them before the search.</h2>
+          <h2>You decide what gets searched.</h2>
           <div class="window">
             <div class="chrome">
               <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -618,36 +724,36 @@
         </section>
 
         <section>
-          <p class="eyebrow">Then</p>
-          <h2>It reads, then it writes.</h2>
+          <p class="eyebrow">How it works</p>
+          <h2>From your question to a sourced report.</h2>
           <ol class="beats">
             <li>
               <span class="idx">01</span>
               <div>
-                <strong>You edit every question.</strong>
-                <span>Add one, cut one, rewrite one. The search does not start until you say so.</span>
+                <strong>You edit the questions.</strong>
+                <span>The search waits. Add one, cut one, rewrite one.</span>
               </div>
             </li>
             <li>
               <span class="idx">02</span>
               <div>
-                <strong>It reads pages and PDFs.</strong>
-                <span>Each question is searched, the page is read, and a PDF is followed when the page points at one.</span>
+                <strong>Athel reads the sources.</strong>
+                <span>Athel searches each question, reads the page, and follows a PDF when the page points at one.</span>
               </div>
             </li>
             <li>
               <span class="idx">03</span>
               <div>
-                <strong>Every line cites a source.</strong>
-                <span>The report uses the notes it collected. Names, dates, and numbers stay attached to the link they came from.</span>
+                <strong>You get a report you can check.</strong>
+                <span>Names, dates, and numbers stay attached to the link they came from.</span>
               </div>
             </li>
           </ol>
         </section>
 
         <section>
-          <p class="eyebrow">Report</p>
-          <h2>Saved on this computer.</h2>
+          <p class="eyebrow">Example</p>
+          <h2>A finished report.</h2>
           <div class="window">
             <div class="chrome">
               <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -658,20 +764,19 @@
               <h3 class="report-title">The box that rewired trade</h3>
               <p class="body-line">On 26 April 1956, the Ideal X left Newark with 58 containers.</p>
               <p class="body-line">Malcolm McLean’s box cut loading from days to hours.</p>
-              <p class="body-line">The report keeps the names, the dates, and a link on every sentence.</p>
               <div class="chips">
                 <span class="chip">26 Apr 1956</span>
                 <span class="chip">58 containers</span>
                 <span class="chip">Newark → Houston</span>
               </div>
-              <p class="saved">Saved on this computer</p>
+              <p class="saved">Saved on your computer</p>
             </div>
           </div>
         </section>
 
         <section id="download">
-          <p class="eyebrow">On your desktop</p>
-          <h2>Download Athel</h2>
+          <p class="eyebrow">Free download</p>
+          <h2>Download the app.</h2>
           <div class="downloads">
             <a class="dl" href="https://github.com/anonthedev/athel/releases/download/v0.0.5/Athel-0.0.5.dmg">
               <b>macOS</b>
@@ -702,17 +807,17 @@
           <p class="note">
             Version 0.0.5. Older builds are on the
             <a href="https://github.com/anonthedev/athel/releases">releases page</a>.
-            The Mac app is not notarized. If macOS refuses to open the disk image, run
+            macOS may block the disk image because the app is not notarized. Run
             <code>xattr -cr</code> on the file, then drag Athel into Applications.
           </p>
           <p class="note">
-            After it opens, add an OpenRouter key. The key stays on this computer.
+            When it opens, add an OpenRouter key or choose Ollama.
           </p>
         </section>
       </main>
 
       <footer>
-        <span>Athel</span>
+        <span>Athel, deep research for your desktop</span>
         <a href="https://github.com/anonthedev/athel">github.com/anonthedev/athel</a>
       </footer>
     </div>

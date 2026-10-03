@@ -1,0 +1,19 @@
+# Athel
+
+> Open source deep research for the desktop. One question becomes a sourced report you can check.
+
+Athel is a desktop app for macOS, Windows, and Linux. You edit the research questions before the search starts. Athel reads the pages and the PDFs, then writes a Markdown report. Names, dates, and numbers stay attached to the link they came from. The file stays on your computer.
+
+The download is free.
+
+## Models
+
+- BYOK with OpenRouter. Your key stays on this computer.
+- Local models with Ollama. They run on this computer. No API key.
+
+## Links
+
+- Site: https://athel-research.vercel.app/
+- Download: https://athel-research.vercel.app/#download
+- Source: https://github.com/anonthedev/athel
+- License: MIT
