@@ -69,6 +69,8 @@ flowchart TD
   Disk --> UI
 ```
 
+The diagram below is the path through the app. [Architecture](ARCHITECTURE.md) is the full pipeline, including how a PDF is split, ranked, and sent to the extractor. If you prefer excalidraw then [Architecture PNG](Architecture.png) or [Excalidraw File](Architecture.excalidraw)
+
 Each pass fans out. Pending gaps are drafted in parallel, each query is searched in parallel, and each new URL is scraped in parallel. `collect_hits` and `update_checklist` are deferred nodes: they wait until every branch of that wave has finished before the graph continues.
 
 A download whose bytes are a PDF goes through `pdf_excerpt` in `backend/app/helper/pdf.py`. PyMuPDF reads the pages, the text is split into overlapping passages, and the run’s embedding model ranks those passages against the gap question. The highest-scoring passages, up to twelve and within a character budget, are what the extractor sees, each marked with its page. An empty excerpt is dropped and the extractor is not called. An HTML page that publishes a `citation_pdf_url` is followed to that PDF when the download returns a non-empty excerpt. Otherwise the HTML text is kept.
