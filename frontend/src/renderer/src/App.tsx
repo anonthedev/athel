@@ -430,7 +430,7 @@ function App(): React.JSX.Element {
     const questions = run.questions
       .map((question) => question.text.trim())
       .filter(Boolean)
-      .slice(0, 7)
+      .slice(0, 12)
     if (questions.length === 0) {
       patchRun(id, (item) => ({ ...item, reviewError: 'Add at least one question' }))
       return

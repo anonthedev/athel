@@ -169,7 +169,7 @@ class ResearchRequest(BaseModel):
         return self
 
 class ResumeRequest(BaseModel):
-    questions: list[str] = Field(min_length=1, max_length=7)
+    questions: list[str] = Field(min_length=1, max_length=12)
     provider: str = "openrouter"
     api_key: str = ""
     planner_model: str
@@ -537,7 +537,7 @@ async def resume_research(thread_id: str, body: ResumeRequest, request: Request)
         raise HTTPException(status_code=404, detail="Research not found")
     
     topic = snapshot.values["topic"]
-    questions = [question.strip() for question in body.questions if question.strip()][:7]
+    questions = [question.strip() for question in body.questions if question.strip()][:12]
     if not questions:
         raise HTTPException(status_code=422, detail="Add at least one question")
     if snapshot.values.get("search_engine") == "tavily" and not body.tavily_api_key:

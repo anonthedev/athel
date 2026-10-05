@@ -5,7 +5,7 @@ import { Kbd } from '@/components/ui/kbd'
 import { Textarea } from '@/components/ui/textarea'
 import type { DraftQuestion } from '@/components/research-trace'
 
-const questionLimit = 7
+const questionLimit = 12
 const submitHint = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
 
 type QuestionReviewProps = {

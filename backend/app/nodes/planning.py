@@ -13,7 +13,7 @@ def generate_gaps(state: OverallState):
     return {
         "gaps": [
             KnowledgeGap(id=index, question=question)
-            for index, question in enumerate(result.questions[:7], start=1)
+            for index, question in enumerate(result.questions[:12], start=1)
         ]
     }
 
@@ -36,7 +36,7 @@ def approved_questions(payload: dict) -> list[str]:
     raw = payload.get("questions", [])
     if not isinstance(raw, list):
         return []
-    return [question.strip() for question in raw if isinstance(question, str) and question.strip()][:7]
+    return [question.strip() for question in raw if isinstance(question, str) and question.strip()][:12]
 
 
 def review_gaps(state: OverallState):

@@ -1,17 +1,18 @@
 """Instructions for each model call. The graph already chains the steps, so each prompt does one job."""
 
-GAPS = """Split this topic into 5 to 7 questions a researcher can answer from sources.
+GAPS = """Split this topic into 10 to 12 short questions a researcher can answer from sources.
 
 These questions are the checklist for the rest of the run. Search, reading, and the final report all follow them, and a person will edit them before research starts. Cover the topic. Each question covers a different part. Write the question itself, so a stranger can tell what a good answer contains.
 
-Match the questions to the topic. When the topic asks which option to choose, or compares products, ask which options fit, what they cost and as of when, and which differences decide the choice. When the topic asks what is true, ask what was measured, who reported it, and where sources disagree. Include history, people, ethics, or uses when the topic asks for them. A single page, review, spec sheet, or study should be able to answer each question.
+Each item is one question. One question asks for one fact: one measurement, one limit, one comparison, or one disagreement. End it with a question mark. Leave out a second clause, a colon, and any list of outcomes, populations, routes, or sources. A single page, review, spec sheet, or study should be able to answer it.
+
+Match the questions to the topic. When the topic asks which option to choose, or compares products, give the options, the price, and the deciding difference each their own question. When the topic asks what is true, give what was measured, who reported it, and where sources disagree each their own question. Include history, people, ethics, or uses when the topic asks for them.
 
 The examples show the shape of a question. The subject comes from the topic.
 
-Buying topic: "Which phones sold in India under ₹20,000 have a rated battery of at least 5000 mAh, and what was the listed price?"
-Factual topic: "What daily caffeine intake have regulators and systematic reviews treated as safe for healthy non-pregnant adults, and where do those limits differ?"
-
-Topic:
+Buying topic: "Which phones sold in India under ₹20,000 list a battery of at least 5000 mAh?"
+Factual topic: "What daily caffeine limit do regulators set for healthy non-pregnant adults?"
+Topic: 
 """
 
 SEARCH_QUERIES = """Write 3 or 4 web search queries that find a specific source for this question.
@@ -41,17 +42,30 @@ Return an empty list when the notes answer the question and no specific fact is 
 Question:
 """
 
-EXTRACT = """Read this page and keep only the claims that answer the question.
+EXTRACT = """Read this page and extract claims based on the question.
 
-The notes you write are the only record of this page. Later steps never see the page, so a dropped claim is gone and a vague claim cannot be repaired. A claim is one or two sentences and states a checkable fact the question asks for.
+A claim is 1-2 sentences and states a checkable fact. When extracting, include who reported it, the year, and the sample/method when provided. When the text has markers like [p.4], start that claim with (p. 4). 
 
-Match the fact to the question. A question about what is true needs who reported it, the year, and the sample or method when the page gives them. "4.4%" is incomplete when the page says who measured it and how. A question about a product or a choice needs the model or variant, the price, the date of that price, and the spec or review finding when the page gives them. On a discussion thread, keep a post or comment that states a result, measurement, citation, or firsthand account, and attribute it to the author shown in the text. Leave jokes and reactions out.
+STRICT EXTRACTION RULES:
+1. Ignore Meta-Text: If a sentence states that the page does not contain the answer, lacks a number, or cannot answer the question (e.g., "This page does not give a regulatory daily limit"), IGNORE IT. Do not extract it into any field. Do not write "the page does not state it".
+2. No Inventions: Never invent numbers, dates, or sample sizes. Only use what the text states.
 
-Set answers_gap to true and put the claims in note when any claim addresses the question. A partial answer is still true. Include every claim that bears on the question, up to 20, including later results, comparisons, and limits on the page.
+EVALUATE AND OUTPUT BASED ON THESE EXACT CONDITIONS:
 
-Set answers_gap to false, leave note empty, and put the claim in additional when the page does not answer the question but names a study, mechanism, product, or comparison on the same subject.
+CONDITION A: The page CONTAINS the answer to the question (even partially).
+* answers_gap: true
+* note: Extract the claims that answer the question.
+* additional: Leave empty.
 
-Leave both fields empty when the page is a quiz, a symptom checker, a paywall notice, or about something else. Leave out any claim the page does not state. When the text has markers like [p.4] or [p.6-7], start that claim with the page, written as (p. 4) or (p. 6-7).
+CONDITION B: The page DOES NOT contain the answer, BUT it mentions a study, mechanism, product, or comparison related to the subject.
+* answers_gap: false
+* note: LEAVE COMPLETELY EMPTY.
+* additional: Extract ONLY the sentence(s) naming the related study, mechanism, product, or comparison. 
+
+CONDITION C: The page is completely irrelevant (e.g., quiz, paywall, different subject).
+* answers_gap: false
+* note: Leave empty.
+* additional: Leave empty.
 
 Question:
 """
