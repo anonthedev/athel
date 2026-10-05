@@ -3,6 +3,7 @@ from urllib.parse import urlparse
 
 from app.states import OverallState
 from app.llm import writer_llm
+from app.prompts import write_report
 
 _LINK = re.compile(r"(!?\[[^\[\]]*\]\()([^)\s]+)(\))")
 
@@ -36,6 +37,20 @@ def restore_citation_urls(markdown: str, urls: list[str]) -> str:
     return _LINK.sub(replace, markdown)
 
 
+def ensure_heading(markdown: str, topic: str) -> str:
+    body = markdown.lstrip()
+    for line in body.splitlines():
+        if not line.strip():
+            continue
+        if line.strip().startswith("# "):
+            return body
+        break
+    title = " ".join(topic.split()).strip().rstrip(".")
+    if not title:
+        return body
+    return f"# {title}\n\n{body}"
+
+
 def write_final_report(state: OverallState) -> dict:
     checklist = []
     for gap in state["gaps"]:
@@ -47,34 +62,6 @@ def write_final_report(state: OverallState) -> dict:
         )
     extra = "\n".join(f"- {item.note}\n  source: {item.source}" for item in state["additional_info"]) or "- None."
 
-    prompt = f"""Write a specific and comprehensive research report in Markdown. You choose the prose, the pace, and how each section is shaped. A section can be several paragraphs, a mix of prose and a list, or a tighter passage when the notes are thin.
-
-Open with an overview of the topic: what it is and the main picture the dossier supports. Then develop the body in sections that fit the topic. Close with a conclusion that draws together what the evidence shows, including important disagreements and what remained unestablished.
-
-Topic:
-{state["topic"]}
-
-Evidence dossier:
-{chr(10).join(checklist)}
-
-Additional information:
-{extra}
-
-The dossier questions are a coverage checklist, not the outline. Choose headings that fit the topic. The overview and the conclusion are ## headings too.
-
-Use the dossier. Every study, figure, comparison, and limit in the notes appears in the section where it belongs. When the same person, date, or mechanism appears under several questions, put it in the section where it belongs and do not repeat it later.
-
-Keep the concrete details from the notes: names, dates, paper titles, sample sizes, methods, organizations, and numbers. "Simner et al. 2006 found 4.4% in a Scottish sample" must not become "synesthesia is fairly common." Every name, date, and number stays attached to the study or page that reported it.
-
-Use only facts from the dossier. Do not round a date, move an event to a different year, or add a fact you were not given. When notes disagree, give the range and attach each figure to the note that states it. Do not average them. For a partially answered question, write what the notes establish and name the part that is still missing. For a failed question, which has no notes, say briefly that the research did not establish it.
-
-Prefer a note that names a study, author, or dataset over a clinic page, wellness blog, or marketing page. Do not give a commercial coping list its own section. Use additional information only when it names a study or mechanism on this topic. Ignore navigation text, browser checks, paywalls, quizzes, and unrelated pages.
-
-Cite inline with a Markdown link. The link text is the author, paper, or publication named in that note. It is never the word "source". If the note has a URL and no name, use the site name. Use only a URL listed under the note the sentence comes from. That page must support that sentence. Do not point two unrelated claims at the same page, and do not add a source list at the end.
-
-Citation form, using the note's own URL: Grapheme-color synesthesia affects about 1.1% of people ([Simner et al., 2006](url-from-the-note)). Paste that URL unchanged, including https:// and the host. A path such as /images/file.pdf is invalid.
-
-Use ## headings. Bold the key names and dates on first mention."""
-
-    result = writer_llm().invoke(prompt)
-    return {"final_report": restore_citation_urls(result.content, citation_urls(state))}
+    result = writer_llm().invoke(write_report(state["topic"], "\n".join(checklist), extra))
+    markdown = restore_citation_urls(result.content, citation_urls(state))
+    return {"final_report": ensure_heading(markdown, state["topic"])}

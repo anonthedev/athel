@@ -2,6 +2,7 @@ from contextvars import ContextVar, Token
 import re
 from app.states import OverallState, UrlHit, Finding
 from app.llm import extractor_llm
+from app.prompts import extract_page
 from pydantic import BaseModel
 from langgraph.types import Send
 from trafilatura import fetch_response, extract
@@ -10,6 +11,7 @@ from ddgs.exceptions import DDGSException
 from tavily import TavilyClient
 from urllib.parse import urljoin, urlparse
 from app.helper.pdf import embedding_configured, pdf_excerpt
+from app.helper.sources import load_specialized, load_specialized_html
 
 _tavily_key: ContextVar[str] = ContextVar("tavily_api_key", default="")
 HTML_LIMIT = 12_000
@@ -47,6 +49,10 @@ def is_pdf(data: bytes) -> bool:
     return b"%PDF-" in head
 
 def load_text(url: str, question: str) -> tuple[str, str] | None:
+    specialized = load_specialized(url, question)
+    if specialized is not None:
+        return specialized
+
     response = fetch_response(url)
     if response is None or response.status != 200 or not response.data:
         return None
@@ -55,6 +61,9 @@ def load_text(url: str, question: str) -> tuple[str, str] | None:
         return pdf_excerpt(response.data, question), source
 
     html = response.data.decode("utf-8", errors="replace")
+    specialized = load_specialized_html(source, html, question)
+    if specialized is not None:
+        return specialized
     text = extract(html, url=source) or ""
     pdf_url = citation_pdf_url(html, source)
     if pdf_url and pdf_url != source and embedding_configured():
@@ -128,18 +137,7 @@ def scrape(state: dict) -> dict:
         return {"findings": []}
 
     result = extractor_llm().with_structured_output(PageResult, include_raw=True).invoke(
-        f"""Keep only claims from this page that bear on the question.
-Question:
-{state["question"]}
-Rules:
-- A claim states the fact and, when the page gives them, who reported it, the year, and the sample or method. "4.4%" is incomplete when the page says who measured it and how.
-- If any claim addresses the question, set answers_gap to true and put those claims in note. A partial answer is still true.
-- If the page does not address the question but names a study or mechanism on this same subject, set answers_gap to false, leave note empty, and put those claims in additional.
-- If the page is a quiz, symptom checker, ad, forum, AI encyclopedia, or about something else, set answers_gap to false and leave both fields empty.
-- Include every claim that bears on the question, up to 20. Each claim is one or two sentences. Do not stop after a few sentences when the page reports more results, comparisons, or limits that bear on the question.
-- When the text has markers like [p.4] or [p.6-7], start each claim with that page, written as (p. 4) or (p. 6-7).
-Page:
-{text}"""
+        extract_page(state["question"], text)
     )
     
     if result["parsing_error"] or result["parsed"] is None:

@@ -1,5 +1,6 @@
 from app.states import OverallState, KnowledgeGap, Finding, SourcedNote
 from app.llm import planner_llm
+from app.prompts import followup_queries, gaps, missing_parts, search_queries
 from pydantic import BaseModel
 from langgraph.types import Send, Command
 from langgraph.types import interrupt
@@ -8,16 +9,7 @@ def generate_gaps(state: OverallState):
     class GapList(BaseModel):
         questions: list[str]
 
-    prompt = f"""Split this topic into 5 to 7 questions that together cover it.
-
-Stay inside what was asked. A question about history, famous people, ethics, or applications belongs here only when the topic asks for it.
-Each question covers a different part. A review, a study, or a primary page should be able to answer it.
-Write the question itself, not search keywords.
-
-Topic:
-{state["topic"]}"""
-
-    result = planner_llm().with_structured_output(GapList).invoke(prompt)
+    result = planner_llm().with_structured_output(GapList).invoke(gaps(state["topic"]))
     return {
         "gaps": [
             KnowledgeGap(id=index, question=question)
@@ -76,22 +68,9 @@ def draft_queries(state: dict) -> Command:
     if gap.missing and gap.notes:
         known = "\n".join(f"- {note.note}" for note in gap.notes)
         needed = "\n".join(f"- {part}" for part in gap.missing)
-        prompt = (
-            "Write 2 or 3 short web search queries that look up only the missing facts below.\n"
-            "Use the names, dates, and terms in those facts. A query is a few search words, not a sentence.\n"
-            "Do not search for facts already collected. Do not repeat the original question.\n\n"
-            f"Question:\n{gap.question}\n\n"
-            f"Already collected:\n{known}\n\n"
-            f"Still needed:\n{needed}"
-        )
-        
+        prompt = followup_queries(gap.question, known, needed)
     else:
-        prompt = (
-            "Write 3 or 4 short web search queries that would find a specific source for this question.\n"
-            "Use the distinctive terms. Include one query aimed at a review or the named study when the question has one.\n"
-            "A query is a few search words, not the question rewritten as a sentence.\n\n"
-            f"Question:\n{gap.question}"
-        )
+        prompt = search_queries(gap.question)
 
     result = planner_llm().with_structured_output(QueryList).invoke(prompt)
 
@@ -152,14 +131,7 @@ def update_checklist(state: OverallState) -> Command:
         if gap.notes:
             listed = "\n".join(f"- {note.note}\n  source: {note.source}" for note in gap.notes)
             result = planner_llm().with_structured_output(MissingList).invoke(
-                "List what this question still lacks. Return at most 4 items, shortest first.\n"
-                "Each item is one lookup of ten words or fewer. Name the missing study, number, date, or mechanism. Do not write a new essay question.\n\n"
-                "Put first any part the question already names that no note answers.\n"
-                "A clinic page, a marketing page, or a quiz does not answer a part. A number with no study does not answer a part.\n\n"
-                "Then add at most 3 new items the notes make necessary, still inside the 4-item cap: a figure with no study, a mechanism with no name, or two notes that disagree and neither names who measured it.\n"
-                "Do not add history, ethics, or famous people unless the question asks for them.\n\n"
-                "Return an empty list when the notes answer the question with claims that say who reported them, and no specific fact is still missing.\n\n"
-                f"Question:\n{gap.question}\n\nNotes:\n{listed}"
+                missing_parts(gap.question, listed)
             )
 
             gap.missing = result.missing
