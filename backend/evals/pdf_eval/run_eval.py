@@ -67,6 +67,7 @@ def score(relevant_pages: list[int], irrelevant: tuple[int, ...], relevant: str,
         "leaked": leaked,
         "pages": selected,
         "empty": not excerpt.strip(),
+        "check_irrelevant": bool(irrelevant),
     }
 
 
@@ -114,7 +115,10 @@ def main() -> int:
             print(f"  relevant pages: {relevant_pages}")
             print(f"  recall: {_ratio(row['recall_hit'], row['recall_total'])}")
             print(f"  relevant text included: {'yes' if row['text_included'] else 'no'}")
-            print(f"  irrelevant pages included: {row['leaked'] or 'none'}")
+            if row["check_irrelevant"]:
+                print(f"  irrelevant pages included: {row['leaked'] or 'none'}")
+            else:
+                print("  irrelevant pages included: n/a")
             print(f"  pages passed on: {row['pages'] or 'none'}")
             if row["empty"]:
                 print("  empty excerpt")
@@ -128,13 +132,18 @@ def main() -> int:
     recall_hit = sum(row["recall_hit"] for row in rows)
     recall_total = sum(row["recall_total"] for row in rows)
     included = sum(row["text_included"] for row in rows)
-    clean = sum(not row["leaked"] for row in rows)
+    leak_rows = [row for row in rows if row["check_irrelevant"]]
+    clean = sum(not row["leaked"] for row in leak_rows)
     print(
         f"recall {_ratio(recall_hit, recall_total)}  "
         f"relevant text included {_ratio(included, len(rows))}  "
-        f"no irrelevant pages {_ratio(clean, len(rows))}"
+        f"no irrelevant pages {_ratio(clean, len(leak_rows))}"
     )
-    passed = recall_hit == recall_total and included == len(rows) and clean == len(rows)
+    passed = (
+        recall_hit == recall_total
+        and included == len(rows)
+        and clean == len(leak_rows)
+    )
     return 0 if passed else 1
 
 
