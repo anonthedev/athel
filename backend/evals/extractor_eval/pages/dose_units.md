@@ -1,0 +1,1 @@
+The US label permits up to 400 mg per day. The European label lists a maximum daily dose of 1.1 g for adults. A 2012 commentary converted the European figure to 1100 mg and set it beside a 3 mg/kg rule of thumb used in one clinic.

@@ -1,0 +1,1 @@
+The 2018 velpanib trial reported a 5-year survival rate of 62%. A 2014 pilot of velpanib enrolled 840 patients and reported survival of 71% at 3 years.

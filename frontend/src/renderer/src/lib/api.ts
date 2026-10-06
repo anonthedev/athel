@@ -43,6 +43,7 @@ export type ResearchEvent =
   | { type: 'dead_url'; url: string }
   | { type: 'gap'; id: number; question: string; status: string; missing: string[] }
   | { type: 'report'; markdown: string }
+  | { type: 'activity'; message: string }
   | { type: 'done' }
   | { type: 'aborted' }
   | { type: 'error'; message: string }

@@ -14,6 +14,14 @@ class KnowledgeGap(BaseModel):
     missing: list[str] = []
     attempts: int = 0
 
+
+def gap_mark(gap: KnowledgeGap) -> Literal["resolved", "partial", "unresolved"]:
+    if gap.status == "resolved" or (gap.notes and not gap.missing):
+        return "resolved"
+    if gap.status == "partial" or gap.notes:
+        return "partial"
+    return "unresolved"
+
 class Finding(BaseModel):
     gap_id: int
     answers_gap: bool

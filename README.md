@@ -189,6 +189,7 @@ SSE payloads are `data: {json}\n\n` lines. A comment ping (`: ping`) is sent if 
 | `finding` | A page yields a note | `gap_id`, `source`, `answers`, `note` |
 | `dead_url` | A download fails | `url` |
 | `gap` | Checklist updates | `id`, `question`, `status`, `missing` |
+| `activity` | A long step has started. The trace shows this until the next event | `message` |
 | `report` | The writer finishes | `markdown` |
 | `done` | The graph finished. A review pause sends `review` instead | |
 | `aborted` | The run was aborted | |
@@ -223,23 +224,41 @@ uv run python evals/pdf_eval/run_eval.py
 ```
 
 ### Extractor
-`scrape` reads a fixed page with `google/gemini-3.1-flash-lite`. The grader checks required spans, banned numbers, and whether a finding should exist at all. Recorded run: 5/5 passed.
+
+`scrape` reads a fixed page with `google/gemini-3.1-flash-lite`. The grader checks required spans, banned numbers, and whether a finding should exist at all. Run on 6 Oct 2026: 12/13 passed.
+
 | Case | Result | What came back |
 | --- | --- | --- |
 | simner_decoy | pass | Note kept Simner, 2006, 1.1%, and Scotland, and left out 18% |
 | partial_sample | pass | Note kept 1.1% and did not invent a sample size |
-| related_study | pass | Empty note. Additional: Wikoff et al. (2017) reviewed caffeine and reported changes in sleep latency |
+| related_study | pass | Empty note. Additional: Wikoff et al. (2017) on caffeine and sleep latency |
 | paywall | pass | No finding |
 | page_marker | pass | Note starts with `(p. 4)` and keeps the 14% reduction |
+| both_present | pass | Note kept 0.96 Å on CASP14 and left out the CASP13 system |
+| bibliography | pass | No finding. The citation list states no result |
+| gallery | pass | No finding. The installation caption was left out |
+| survival | pass | Note kept 62% for the 2018 velpanib trial and did not use 840 patients |
+| handset | pass | Note kept the March 2024 US list price of $799 |
+| retracted | pass | Note kept the 9.1% intention-to-treat rate |
+| regimen | fail | No finding. Note and additional were both empty |
+| dose_units | pass | Note kept 1.1 g and did not convert it to 1100 mg |
 
 ### Checklist
-`update_checklist` reads the notes with `openai/gpt-5-mini` and decides whether the gap is finished. Recorded run: 4/4 passed.
-| Case | Status | Still missing |
-| --- | --- | --- |
-| answered | resolved | nothing |
-| vague | pending | Simner 2006 percentage, journal, diagnostic method, and Scottish sample size |
-| partial_sample | pending | Simner et al. (2006) sample size |
-| disagreement | pending | Who reported 1.1%, and who reported 4% |
+
+`update_checklist` reads the notes with `openai/gpt-5-mini` and decides whether the gap is finished. Run on 6 Oct 2026: 10/10 passed.
+
+| Case | Result | Status | Still missing |
+| --- | --- | --- | --- |
+| answered | pass | resolved | nothing |
+| vague | pass | pending | Simner et al. (2006) Scottish sample percentage |
+| partial_sample | pass | pending | Simner et al. 2006 sample size |
+| disagreement | pass | pending | Consensus estimate, study name and date for the 1.1% survey, study name and date for the 4% survey |
+| price_complete | pass | resolved | nothing |
+| hedged | pass | resolved | nothing |
+| agreeing | pass | resolved | nothing |
+| price_wrong_date | pass | pending | Date $799 listed, who reported $799, source page publication date |
+| study_not_limit | pass | pending | Regulatory daily caffeine limit, plus FDA, EFSA, and UK NHS limits |
+| half_sourced | pass | pending | Simner 2006 sample age, 4% estimate source, 4% estimate sample age |
 
 ### PDF eval
 

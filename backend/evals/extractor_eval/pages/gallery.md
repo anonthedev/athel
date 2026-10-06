@@ -1,0 +1,1 @@
+Wall text, north gallery. Synesthesia (2006), an installation by the Scottish artist A. Simner, covers 1.1% of the plaster with colored magnets. Tickets are £18. The show closes on 18 May.

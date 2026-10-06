@@ -25,9 +25,15 @@ import {
 } from '@/lib/api'
 import { fillOllamaModels, readSettings, writeSettings, type Provider } from '@/lib/settings'
 import { applyTheme, readTheme, type Theme } from '@/lib/theme'
+import { tracePreviewRun } from '@/lib/trace-preview'
 import { cn } from '@/lib/utils'
 
-type Screen = { type: 'compose' } | { type: 'trace'; id: string } | { type: 'report'; slug: string }
+type Screen = { type: 'compose' } | { type: 'trace'; id: string } | { type: 'report'; slug: string } | { type: 'preview' }
+
+function screenFromLocation(): Screen {
+  if (window.location.hash === '#preview') return { type: 'preview' }
+  return { type: 'compose' }
+}
 
 type Article = {
   slug: string
@@ -117,7 +123,7 @@ function formatUpdated(value: string): string {
 function App(): React.JSX.Element {
   const [reports, setReports] = useState<ReportSummary[]>([])
   const [runs, setRuns] = useState<ResearchRun[]>([])
-  const [screen, setScreen] = useState<Screen>({ type: 'compose' })
+  const [screen, setScreen] = useState<Screen>(screenFromLocation)
   const [topic, setTopic] = useState('')
   const [article, setArticle] = useState<Article | null>(null)
   const [reportError, setReportError] = useState<string | null>(null)
@@ -143,7 +149,7 @@ function App(): React.JSX.Element {
   const [keyRejected, setKeyRejected] = useState(false)
   const keyStatus = useApiKeyStatus(apiKey, setKeyRejected)
   const keyReady = keyStatus === 'accepted'
-  const screenRef = useRef<Screen>({ type: 'compose' })
+  const screenRef = useRef<Screen>(screenFromLocation())
   const focusSidebar = useRef<'open' | 'closed' | null>(null)
   const expandRef = useRef<HTMLButtonElement>(null)
   const collapseRef = useRef<HTMLButtonElement>(null)
@@ -151,13 +157,17 @@ function App(): React.JSX.Element {
   const continuing = useRef(new Set<string>())
   const runAbort = useRef(new Map<string, AbortController>())
   const abortedRuns = useRef(new Set<string>())
-  const userNavigated = useRef(false)
+  const userNavigated = useRef(window.location.hash === '#preview')
   const openSeq = useRef(0)
 
   function go(next: Screen): void {
     userNavigated.current = true
     screenRef.current = next
     setScreen(next)
+    const hash = next.type === 'preview' ? '#preview' : ''
+    if (next.type === 'preview' || window.location.hash === '#preview') {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${hash}`)
+    }
     if (next.type === 'compose') requestAnimationFrame(() => topicRef.current?.focus())
   }
 
@@ -300,17 +310,22 @@ function App(): React.JSX.Element {
       patchRun(id, (item) => ({
         ...item,
         status: 'review',
+        activity: null,
         questions: draftQuestions(researchEvent.questions),
         reviewError: researchEvent.error ?? null
       }))
       return
     }
+    if (researchEvent.type === 'activity') {
+      patchRun(id, (item) => ({ ...item, activity: researchEvent.message }))
+      return
+    }
     if (researchEvent.type === 'error') {
-      patchRun(id, (item) => ({ ...item, status: 'error', error: researchEvent.message }))
+      patchRun(id, (item) => ({ ...item, status: 'error', activity: null, error: researchEvent.message }))
       return
     }
     if (researchEvent.type === 'done' || researchEvent.type === 'gaps') return
-    patchRun(id, (item) => ({ ...item, events: [...item.events, researchEvent] }))
+    patchRun(id, (item) => ({ ...item, activity: null, events: [...item.events, researchEvent] }))
   }
 
   async function openFinishedReport(id: string, nextTopic: string, reportMarkdown: string): Promise<void> {
@@ -383,6 +398,7 @@ function App(): React.JSX.Element {
       questions: [],
       reviewError: null,
       events: [],
+      activity: null,
       error: null
     }
     setRuns((current) => [run, ...current])
@@ -441,6 +457,7 @@ function App(): React.JSX.Element {
       ...item,
       status: 'running',
       phase: 'researching',
+      activity: null,
       reviewError: null,
       events: [{ type: 'gaps', questions }, ...item.events.filter((event) => event.type !== 'gaps')]
     }))
@@ -515,6 +532,23 @@ function App(): React.JSX.Element {
         </div>
         <ScrollArea className="min-h-0 flex-1">
           <div className="flex flex-col gap-1 px-2 pb-4">
+            {/* <ul className="flex flex-col">
+              <li>
+                <button
+                  type="button"
+                  aria-current={screen.type === 'preview' ? 'page' : undefined}
+                  className={cn(
+                    'relative flex w-full flex-col items-start gap-0.5 rounded-md py-2 pr-2 pl-3 text-left hover:bg-sidebar-accent',
+                    screen.type === 'preview' &&
+                      'bg-sidebar-accent before:absolute before:top-2 before:bottom-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
+                  )}
+                  onClick={() => go({ type: 'preview' })}
+                >
+                  <span className="line-clamp-2 text-sm font-medium">Trace preview</span>
+                  <span className="text-sm text-muted-foreground">Sample trace</span>
+                </button>
+              </li>
+            </ul> */}
             {ongoing.length > 0 ? (
               <h2 className="px-3 pt-3 pb-1 text-sm text-muted-foreground">Ongoing research</h2>
             ) : null}
@@ -739,6 +773,24 @@ function App(): React.JSX.Element {
             }
           />
         ) : null}
+
+        {/* {screen.type === 'preview' ? (
+          <ResearchTrace
+            run={tracePreviewRun}
+            onAbort={() => undefined}
+            onOpenSettings={() => setSettingsOpen(true)}
+            leading={
+              sidebarOpen ? null : (
+                <SidebarToggle
+                  open={false}
+                  buttonRef={expandRef}
+                  className="hover:bg-muted"
+                  onClick={() => setSidebar(true)}
+                />
+              )
+            }
+          />
+        ) : null} */}
 
         {screen.type === 'trace' && activeRun && activeRun.status !== 'review' ? (
           <ResearchTrace

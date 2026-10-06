@@ -1,3 +1,4 @@
+from app.progress import announce
 from app.states import OverallState, KnowledgeGap, Finding, SourcedNote
 from app.llm import planner_llm
 from app.prompts import followup_queries, gaps, missing_parts, search_queries
@@ -110,6 +111,7 @@ def sourced_notes(findings: list[Finding], field: str) -> list[SourcedNote]:
     return notes
 
 def update_checklist(state: OverallState) -> Command:
+    announce("Checking for gaps")
     class MissingList(BaseModel):
         missing: list[str]
     

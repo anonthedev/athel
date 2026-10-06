@@ -22,6 +22,7 @@ from langgraph.types import Command
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 from app.graph import graph
+from app.states import gap_mark
 from app.llm import OLLAMA_BASE_URL, ModelSelection, reset_selection, use_selection
 from app.nodes.search import reset_tavily_key, use_tavily_key
 
@@ -309,7 +310,14 @@ def drive(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue, chunks, api_key
     report = ""
     try:
         for chunk in chunks:
-            for node, update in chunk.items():
+            mode, payload = chunk if isinstance(chunk, tuple) else ("updates", chunk)
+            if mode == "custom":
+                if isinstance(payload, dict) and payload.get("type") == "activity":
+                    publish(loop, queue, payload)
+                continue
+            if mode != "updates" or not isinstance(payload, dict):
+                continue
+            for node, update in payload.items():
                 if not isinstance(update, dict):
                     continue
                 for event in events_from(node, update):
@@ -441,7 +449,7 @@ def events_from(node: str, update: dict) -> list[dict]:
                 "type": "gap",
                 "id": gap.id,
                 "question": gap.question,
-                "status": gap.status,
+                "status": gap_mark(gap),
                 "missing": gap.missing,
             }
             for gap in update["gaps"]
@@ -512,6 +520,7 @@ async def research(body: ResearchRequest, request: Request):
                     initial_state(body.topic, body.max_iterations, body.search_engine),
                     config=config,
                     control=control,
+                    stream_mode=["updates", "custom"],
                 ),
                 body.api_key,
                 body.tavily_api_key,
@@ -554,7 +563,12 @@ async def resume_research(thread_id: str, body: ResumeRequest, request: Request)
             report = drive(
                 loop,
                 queue,
-                graph.stream(Command(resume={"questions": questions}), config=config, control=control),
+                graph.stream(
+                    Command(resume={"questions": questions}),
+                    config=config,
+                    control=control,
+                    stream_mode=["updates", "custom"],
+                ),
                 body.api_key,
                 body.tavily_api_key,
             )

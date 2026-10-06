@@ -1,0 +1,1 @@
+Price sheet, revised March 2024. The official US list price of the 128 GB model in March 2024 was $799. The same 128 GB model had an official US list price of $749 in March 2023. In March 2024 the official US list price of the 256 GB model was $899, and the European list price of the 128 GB model was €769. A retailer preview mentioned $699 before the official US price was posted.

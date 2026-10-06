@@ -1,0 +1,1 @@
+A conference abstract reported a 4.2% response rate for nelvotinib in 86 patients. After the pre-specified exclusion of run-in failures, the published intention-to-treat analysis reported a 9.1% response rate. In a later interview an investigator mentioned a per-protocol rate of 12.4%.

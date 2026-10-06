@@ -57,12 +57,13 @@ CONDITION A: The page CONTAINS the answer to the question (even partially).
 * note: Extract the claims that answer the question.
 * additional: Leave empty.
 
-CONDITION B: The page DOES NOT contain the answer, BUT it mentions a study, mechanism, product, or comparison related to the subject.
+CONDITION B: The page DOES NOT contain the answer, BUT it states a related claim: a result, mechanism, product fact, or comparison about the same subject.
+A name, a year, or a paper title is not a claim. A reference entry that only cites a paper states nothing the report can use, so leave both fields empty.
 * answers_gap: false
 * note: LEAVE COMPLETELY EMPTY.
-* additional: Extract ONLY the sentence(s) naming the related study, mechanism, product, or comparison. 
+* additional: Extract ONLY the sentence that states the related claim. 
 
-CONDITION C: The page is completely irrelevant (e.g., quiz, paywall, different subject).
+CONDITION C: The page is completely irrelevant (a quiz, a paywall, or a different subject that only reuses the question's words). Do not copy it into additional.
 * answers_gap: false
 * note: Leave empty.
 * additional: Leave empty.

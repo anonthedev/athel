@@ -1,5 +1,8 @@
 import type { ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+
+const remarkPlugins = [remarkGfm]
 
 export function ExternalLink({
   href,
@@ -19,8 +22,14 @@ export function MarkdownReport({ markdown }: { markdown: string }): React.JSX.El
   return (
     <article className="markdown reading-column px-8 py-10">
       <ReactMarkdown
+        remarkPlugins={remarkPlugins}
         components={{
-          a: ({ href, children }) => <ExternalLink href={href}>{children}</ExternalLink>
+          a: ({ href, children }) => <ExternalLink href={href}>{children}</ExternalLink>,
+          table: ({ children }) => (
+            <div className="markdown-table">
+              <table>{children}</table>
+            </div>
+          )
         }}
       >
         {markdown}

@@ -1,6 +1,7 @@
 import re
 from urllib.parse import urlparse
 
+from app.progress import announce
 from app.states import OverallState
 from app.llm import writer_llm
 from app.prompts import write_report
@@ -52,6 +53,7 @@ def ensure_heading(markdown: str, topic: str) -> str:
 
 
 def write_final_report(state: OverallState) -> dict:
+    announce("Writing your report")
     checklist = []
     for gap in state["gaps"]:
         notes = "\n".join(

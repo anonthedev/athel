@@ -1,0 +1,1 @@
+Jumper et al. (2021) reported that AlphaFold reached a median backbone accuracy of 0.96 Å on CASP14, the assessment in which that system was entered. Senior et al. (2020) had earlier described a different AlphaFold system, the one entered in CASP13.

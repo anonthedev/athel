@@ -52,9 +52,11 @@ def main() -> int:
             verdict = grade(case, finding)
             passed += verdict == "pass"
             print(f"{case.id}: {verdict}")
-            if finding is not None:
-                print(f"  note: {finding.note}")
-                print(f"  additional: {finding.additional}")
+            note = finding.note if finding is not None else ""
+            additional = finding.additional if finding is not None else ""
+            if finding is not None or verdict == "fail":
+                print(f"  note: {note}")
+                print(f"  additional: {additional}")
             missed = failures(case, finding)
             if missed:
                 print(f"  checks: {', '.join(missed)}")

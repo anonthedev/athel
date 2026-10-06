@@ -30,6 +30,8 @@ def failures(case: Case, finding: Finding | None) -> list[str]:
         reasons.append("empty note")
     if case.note_must_be_empty and finding.note.strip():
         reasons.append("note should be empty")
+    if case.additional_must_be_empty and finding.additional.strip():
+        reasons.append("additional should be empty")
     for group in case.note_groups:
         if not any(option in note for option in group):
             reasons.append(f"note missing {group[0]}")

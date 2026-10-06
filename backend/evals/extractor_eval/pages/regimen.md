@@ -1,0 +1,1 @@
+The 6-month tuberculosis regimen has a reported cure rate of 85%. In 2018 the WHO recommended a separate 4-month regimen and reported a 91% cure rate for that shorter course.
