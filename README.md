@@ -213,6 +213,66 @@ SSE payloads are `data: {json}\n\n` lines. A comment ping (`: ping`) is sent if 
 
 `hits`, `findings`, `dead_urls`, and `blocked_domains` use a list reducer so parallel branches accumulate instead of overwriting each other.
 
+## Evals
+`excerpt_pages` in `backend/app/helper/pdf.py` ranks passages from a PDF against the question and keeps up to twelve. The eval in `backend/evals/pdf_eval/` downloads 25 papers, runs that ranking with `openai/text-embedding-3-small`, and checks three things: every page that contains a known fact is among the pages passed on, that fact’s text is in the excerpt, and bibliography pages are left out. The IPCC summary has no bibliography, so it is left out of the last score.
+From `backend/`, with `OPENROUTER_API_KEY` in `backend/.env`:
+```bash
+uv run python evals/extractor_eval/run_eval.py
+uv run python evals/checklist_eval/run_eval.py
+uv run python evals/pdf_eval/run_eval.py
+```
+
+### Extractor
+`scrape` reads a fixed page with `google/gemini-3.1-flash-lite`. The grader checks required spans, banned numbers, and whether a finding should exist at all. Recorded run: 5/5 passed.
+| Case | Result | What came back |
+| --- | --- | --- |
+| simner_decoy | pass | Note kept Simner, 2006, 1.1%, and Scotland, and left out 18% |
+| partial_sample | pass | Note kept 1.1% and did not invent a sample size |
+| related_study | pass | Empty note. Additional: Wikoff et al. (2017) reviewed caffeine and reported changes in sleep latency |
+| paywall | pass | No finding |
+| page_marker | pass | Note starts with `(p. 4)` and keeps the 14% reduction |
+
+### Checklist
+`update_checklist` reads the notes with `openai/gpt-5-mini` and decides whether the gap is finished. Recorded run: 4/4 passed.
+| Case | Status | Still missing |
+| --- | --- | --- |
+| answered | resolved | nothing |
+| vague | pending | Simner 2006 percentage, journal, diagnostic method, and Scottish sample size |
+| partial_sample | pending | Simner et al. (2006) sample size |
+| disagreement | pending | Who reported 1.1%, and who reported 4% |
+
+### PDF eval
+
+Run on 6 Oct 2026: recall 52/72 (0.72), relevant text included 24/25 (0.96), no irrelevant pages 15/24 (0.62).
+
+| Paper | Recall | Fact in excerpt | Bibliography pages included |
+| --- | --- | --- | --- |
+| attention | 1/1 | yes | none |
+| bert | 1/1 | yes | none |
+| resnet | 1/1 | yes | none |
+| adam | 3/3 | yes | none |
+| batchnorm | 4/4 | yes | none |
+| yolo | 1/1 | yes | none |
+| gan | 1/2 | no | 9 |
+| gnn | 2/3 | yes | 12, 13 |
+| dropout | 4/5 | yes | 7 |
+| ligo | 5/7 | yes | 10 |
+| higgs | 1/3 | yes | 24, 25 |
+| planck | 1/4 | yes | none |
+| alphafold | 1/1 | yes | none |
+| crispr | 3/3 | yes | none |
+| pubchem | 1/1 | yes | 12 |
+| mpnn | 1/1 | yes | none |
+| zhang | 2/2 | yes | 54 |
+| greentao | 3/4 | yes | 56 |
+| perelman | 3/7 | yes | none |
+| kepler | 1/1 | yes | 19, 20 |
+| reproducibility | 1/1 | yes | none |
+| henrich | 3/8 | yes | none |
+| chexnet | 5/5 | yes | none |
+| economist | 2/2 | yes | none |
+| ipcc | 1/1 | yes | n/a |
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
