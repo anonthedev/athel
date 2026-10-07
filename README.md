@@ -79,13 +79,14 @@ A gap is **resolved** when notes cover the question. It stays **pending** and is
 
 ## Models
 
-Each run uses an OpenRouter key and four models you choose in the window. The catalog comes from [OpenRouter](https://openrouter.ai/). The key stays in the browser’s local storage on this computer and is sent only to the local server, which uses it for that run and does not write it to disk. A Tavily key, when you add one, is stored the same way and is required only when the search engine is Tavily.
+Each run uses an OpenRouter key and five models you choose in the window. The catalog comes from [OpenRouter](https://openrouter.ai/). The key stays in the browser’s local storage on this computer and is sent only to the local server, which uses it for that run and does not write it to disk. A Tavily key, when you add one, is stored the same way and is required only when the search engine is Tavily.
 
-Planner and extractor choices are limited to models that accept tool calls, because those steps return structured data. The writer can be any text model. The embedding model is chosen from OpenRouter’s embedding catalog and is used only to rank passages inside a PDF.
+Planner, scraper, and extractor choices are limited to models that accept tool calls, because those steps return structured data. The writer can be any text model. The embedding model is chosen from OpenRouter’s embedding catalog and is used only to rank passages inside a PDF.
 
 | Role | Default | Job |
 | --- | --- | --- |
 | Planner | `openai/gpt-5-mini` | Split the topic into 5–7 questions, write search queries, and list what a gap still lacks |
+| Scraper | `openai/gpt-5-mini` | Choose a reader for each URL, and write a Python script when those readers return nothing |
 | Extractor | `google/gemini-3.1-flash-lite` | Read a scraped page and keep only the facts that answer the question, or useful side notes |
 | Writer | `anthropic/claude-sonnet-5` | Turn the evidence dossier into one Markdown report with inline source links |
 | Embedding | `openai/text-embedding-3-small` | Rank PDF passages against the gap question so the extractor sees the relevant pages |
@@ -221,7 +222,40 @@ From `backend/`, with `OPENROUTER_API_KEY` in `backend/.env`:
 uv run python evals/extractor_eval/run_eval.py
 uv run python evals/checklist_eval/run_eval.py
 uv run python evals/pdf_eval/run_eval.py
+uv run python evals/scraper_eval/run_eval.py
+uv run python evals/script_eval/run_eval.py
 ```
+
+### Scraper
+
+`scrape` is the reader agent, using `openai/gpt-5-mini`. Claim extraction still uses `google/gemini-3.1-flash-lite`. Each case stubs the readers, so the run never downloads a page. The Python tool is stubbed the same way: the script is recorded, and the tool returns the case text instead of running it. The grader checks that the agent calls the reader the URL needs, in that order, and that the note comes from the text that reader returned. A publisher page must be read with `doi`, and the finding keeps that tool’s DOI link. A PubMed URL whose record is missing must fall through to `trafilatura`. When every reader returns nothing, the agent must call `python_scraping`, and the script must contain the page URL. A failed download must block the host. Run on 7 Oct 2026: 12/12 passed.
+
+| Case | Result | Reader calls |
+| --- | --- | --- |
+| pubmed | pass | pubmed |
+| doi | pass | doi |
+| reddit | pass | reddit |
+| substack | pass | substack |
+| page | pass | trafilatura |
+| publisher | pass | doi, and the note kept the DOI link |
+| fallback | pass | pubmed, then trafilatura |
+| dead | pass | trafilatura, and the host was blocked |
+| script_page | pass | trafilatura, then python_scraping |
+| script_pubmed | pass | pubmed, trafilatura, then python_scraping |
+| script_doi | pass | doi, trafilatura, then python_scraping |
+| script_dead | pass | trafilatura, then python_scraping, and the host was blocked |
+
+### Script
+
+This eval runs the script the scraper writes against public pages. The other readers are stubbed so the agent has to write the script; the script itself is executed and downloads the real URL. A library the script imports that is not already installed is installed into the script’s directory before it runs. The grader checks that the script contains that URL, that its output includes a fact from the live page, and that the extractor’s note does too. Run on 7 Oct 2026: 3/5 passed.
+
+| Case | Page | Result |
+| --- | --- | --- |
+| marketplace | IKEA BILLY bookcase | fail. The script ran and described the bookcase, but not with the phrases the grader required |
+| blog | Paul Graham, “How to Do Great Work” | pass |
+| social | Hacker News item 1 | fail. The site answered 419 to the script’s user agent |
+| recipe | Allrecipes chocolate chip cookies | pass |
+| reference | Wikipedia, French press | pass |
 
 ### Extractor
 

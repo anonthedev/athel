@@ -88,6 +88,7 @@ def main() -> int:
         provider="openrouter",
         api_key=api_key,
         planner="openai/gpt-5-mini",
+        scraper="openai/gpt-5-mini",
         extractor="google/gemini-3.1-flash-lite",
         writer="anthropic/claude-sonnet-5",
         embedding="openai/text-embedding-3-small",

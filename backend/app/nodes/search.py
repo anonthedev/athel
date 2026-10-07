@@ -1,9 +1,7 @@
 from contextvars import ContextVar, Token
+import gzip
 import re
-from app.states import OverallState, UrlHit, Finding
-from app.llm import extractor_llm
-from app.prompts import extract_page
-from pydantic import BaseModel
+from app.states import OverallState, UrlHit
 from langgraph.types import Send
 from trafilatura import fetch_response, extract
 from ddgs import DDGS
@@ -11,7 +9,6 @@ from ddgs.exceptions import DDGSException
 from tavily import TavilyClient
 from urllib.parse import urljoin, urlparse
 from app.helper.pdf import embedding_configured, pdf_excerpt
-from app.helper.sources import load_specialized, load_specialized_html
 
 _tavily_key: ContextVar[str] = ContextVar("tavily_api_key", default="")
 HTML_LIMIT = 12_000
@@ -48,22 +45,30 @@ def is_pdf(data: bytes) -> bool:
         return True
     return b"%PDF-" in head
 
-def load_text(url: str, question: str) -> tuple[str, str] | None:
-    specialized = load_specialized(url, question)
-    if specialized is not None:
-        return specialized
+def response_html(response) -> str:
+    html = getattr(response, "html", None)
+    if isinstance(html, str) and html.strip():
+        return html
+    data = getattr(response, "data", None) or b""
+    if isinstance(data, str):
+        return data
+    if data[:2] == b"\x1f\x8b":
+        try:
+            data = gzip.decompress(data)
+        except Exception:
+            return ""
+    return data.decode("utf-8", errors="replace")
 
-    response = fetch_response(url)
-    if response is None or response.status != 200 or not response.data:
+
+def load_text(url: str, question: str) -> tuple[str, str] | None:
+    response = fetch_response(url, decode=True)
+    if response is None or response.status != 200 or not (response.data or getattr(response, "html", None)):
         return None
     source = landed_url(url, response.url)
-    if is_pdf(response.data):
+    if response.data and is_pdf(response.data):
         return pdf_excerpt(response.data, question), source
 
-    html = response.data.decode("utf-8", errors="replace")
-    specialized = load_specialized_html(source, html, question)
-    if specialized is not None:
-        return specialized
+    html = response_html(response)
     text = extract(html, url=source) or ""
     pdf_url = citation_pdf_url(html, source)
     if pdf_url and pdf_url != source and embedding_configured():
@@ -121,45 +126,6 @@ def search(state: dict) -> dict:
             for url in urls
         ]
     }
-
-def scrape(state: dict) -> dict:
-    class PageResult(BaseModel):
-        answers_gap: bool
-        note: str
-        additional: str = ""
-
-    loaded = load_text(state["url"], state["question"])
-    if loaded is None:
-        domain = host_of(state["url"])
-        return {"dead_urls": [state["url"]], "blocked_domains": [domain], "findings": []}
-    text, source = loaded
-    if not text:
-        return {"findings": []}
-
-    result = extractor_llm().with_structured_output(PageResult, include_raw=True).invoke(
-        extract_page(state["question"], text)
-    )
-    
-    if result["parsing_error"] or result["parsed"] is None:
-        return {"findings": []}
-
-    parsed = result["parsed"]
-
-    if not parsed.note.strip() and not parsed.additional.strip():
-        return {"findings": []}
-
-    return {
-        "findings": [
-            Finding(
-                gap_id=state["gap_id"],
-                answers_gap=parsed.answers_gap and bool(parsed.note.strip()),
-                note=parsed.note.strip(),
-                source=source,
-                additional=parsed.additional.strip(),
-            )
-        ]
-    }
-
 
 def fan_out_scrapes(state: OverallState):
     seen = {(finding.gap_id, finding.source) for finding in state["findings"]}

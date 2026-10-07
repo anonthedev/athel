@@ -10,6 +10,7 @@ dependencies = [
     "dotenv>=0.9.9",
     "duckduckgo-search>=8.1.1",
     "fastapi>=0.141.1",
+    "langchain>=1.0",
     "langchain-core>=1.6.5",
     "langchain-ollama>=0.3.0",
     "langchain-openrouter>=0.2.9",

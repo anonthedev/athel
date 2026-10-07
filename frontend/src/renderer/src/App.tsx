@@ -387,7 +387,7 @@ function App(): React.JSX.Element {
     const chosen = provider === 'ollama' ? ollamaModels : models
     if (!nextTopic) return
     if (provider === 'openrouter' && (nextKey.length < 8 || keyRejected)) return
-    if (!chosen.planner || !chosen.extractor || !chosen.writer) return
+    if (!chosen.planner || !chosen.scraper || !chosen.extractor || !chosen.writer) return
 
     const id = crypto.randomUUID()
     const run: ResearchRun = {
@@ -442,7 +442,7 @@ function App(): React.JSX.Element {
     const chosen = provider === 'ollama' ? ollamaModels : models
     if (!run || run.status !== 'review') return
     if (provider === 'openrouter' && (nextKey.length < 8 || keyRejected)) return
-    if (!chosen.planner || !chosen.extractor || !chosen.writer) return
+    if (!chosen.planner || !chosen.scraper || !chosen.extractor || !chosen.writer) return
     const questions = run.questions
       .map((question) => question.text.trim())
       .filter(Boolean)
@@ -496,7 +496,7 @@ function App(): React.JSX.Element {
   }
 
   const activeModels = provider === 'ollama' ? ollamaModels : models
-  const modelsReady = Boolean(activeModels.planner && activeModels.extractor && activeModels.writer)
+  const modelsReady = Boolean(activeModels.planner && activeModels.scraper && activeModels.extractor && activeModels.writer)
   const composeReady = provider === 'ollama' || keyReady
   const activeRun = runs.find((run) => screen.type === 'trace' && run.id === screen.id)
   const ongoing = runs.filter(

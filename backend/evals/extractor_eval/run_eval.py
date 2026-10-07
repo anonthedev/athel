@@ -8,7 +8,7 @@ import dotenv
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.llm import ModelSelection, reset_selection, use_selection
-from app.nodes.search import scrape
+from app.nodes.scrape import scrape
 from app.states import Finding
 from evals.extractor_eval.cases import CASES, Case
 from evals.extractor_eval.verifier import failures, grade
@@ -19,7 +19,14 @@ _BACKEND = Path(__file__).resolve().parents[2]
 def extract(case: Case) -> tuple[Finding | None, str | None]:
     state = {"gap_id": 1, "question": case.question, "url": case.url}
     try:
-        with patch("app.nodes.search.load_text", return_value=(case.page, case.url)):
+        page = (case.page, case.url)
+        with patch("app.nodes.scrape.pubmed_source.load", return_value=page), \
+                patch("app.nodes.scrape.doi_source.matches", return_value=True), \
+                patch("app.nodes.scrape.doi_source.load", return_value=page), \
+                patch("app.nodes.scrape.reddit_source.load", return_value=page), \
+                patch("app.nodes.scrape.substack_source.matches", return_value=True), \
+                patch("app.nodes.scrape.substack_source.load", return_value=page), \
+                patch("app.nodes.scrape.load_text", return_value=page):
             result = scrape(state)
     except Exception as exc:
         return None, type(exc).__name__
@@ -38,6 +45,7 @@ def main() -> int:
         provider="openrouter",
         api_key=api_key,
         planner="openai/gpt-5-mini",
+        scraper="openai/gpt-5-mini",
         extractor="google/gemini-3.1-flash-lite",
         writer="anthropic/claude-sonnet-5",
         embedding="openai/text-embedding-3-small",

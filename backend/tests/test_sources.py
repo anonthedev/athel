@@ -332,14 +332,14 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(loaded[0], "Title: Summit\n\nBody")
         loader.assert_called_once()
 
-    def test_load_text_prefers_specialized_reader(self):
+    def test_load_text_reads_the_downloaded_page(self):
         import app.nodes.search as search
 
-        with patch.object(search, "load_specialized", return_value=("Abstract alpha", "https://pubmed.ncbi.nlm.nih.gov/1/")):
-            with patch.object(search, "fetch_response") as fetch:
-                loaded = search.load_text("https://pubmed.ncbi.nlm.nih.gov/1/", "question")
-        self.assertEqual(loaded, ("Abstract alpha", "https://pubmed.ncbi.nlm.nih.gov/1/"))
-        fetch.assert_not_called()
+        response = Response(200, "https://example.com/a", b"<p>Hello</p>")
+        with patch.object(search, "fetch_response", return_value=response):
+            with patch.object(search, "extract", return_value="Hello"):
+                loaded = search.load_text("https://example.com/a", "question")
+        self.assertEqual(loaded, ("Hello", "https://example.com/a"))
 
 
 if __name__ == "__main__":

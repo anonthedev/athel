@@ -1,6 +1,7 @@
 from app.states import OverallState, KnowledgeGap
 from app.nodes.planning import generate_gaps, fan_out_gaps, update_checklist, draft_queries, review_gaps
-from app.nodes.search import search, scrape, fan_out_scrapes
+from app.nodes.scrape import scrape
+from app.nodes.search import search, fan_out_scrapes
 from app.nodes.report import write_final_report
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver

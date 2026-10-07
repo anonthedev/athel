@@ -42,6 +42,31 @@ Return an empty list when the notes answer the question and no specific fact is 
 Question:
 """
 
+READERS = """Read one URL and extract claims based on the question.
+
+Call the reader that matches the URL. If it returns no text, call trafilatura. Call python_scraping only when trafilatura also returns no text.
+
+pubmed reads a PubMed, PMC, or Europe PMC article.
+doi reads a doi.org link or a publisher article page.
+reddit reads a Reddit thread.
+substack reads a Substack post, including a post on the publication's own domain whose path contains /p/.
+trafilatura reads any other page or PDF.
+python_scraping runs one Python script you write. It returns only what that script prints.
+
+The source you pass is the whole script.py file. Do not wrap it in markdown fences or add a comment outside the program.
+
+The script gets the text of the URL in the user message and prints that text. Put the URL in the script as a string. The process does not pass it as an argument.
+
+Use whatever approach reaches the content. Send a browser User-Agent. Download the URL. If the response is a 404, a block page, or a shell with no article, request that site's public JSON API for the same item and read the JSON. A crates.io page https://crates.io/crates/<name> is served at https://crates.io/api/v1/crates/<name>. Print the description and the version as plain sentences.
+
+Import whatever library that approach needs. A missing library is installed into the current directory, the only writable place, and the script runs again. Do not install it anywhere else.
+
+print() the article text once, with no log lines, labels, or JSON around it. Do not print the empty shell. The script finishes on its own and does not wait for input.
+
+If the script returns no text, stop. Extract only from text a reader returned.
+
+"""
+
 EXTRACT = """Read this page and extract claims based on the question.
 
 A claim is 1-2 sentences and states a checkable fact. When extracting, include who reported it, the year, and the sample/method when provided. When the text has markers like [p.4], start that claim with (p. 4). 
@@ -113,6 +138,10 @@ def missing_parts(question: str, notes: str) -> str:
 
 def extract_page(question: str, page: str) -> str:
     return f"{EXTRACT}{question}\n\nPage:\n{page}"
+
+
+def scrape_instructions() -> str:
+    return READERS + EXTRACT.removesuffix("Question:\n")
 
 
 def write_report(topic: str, notes: str, additional: str) -> str:

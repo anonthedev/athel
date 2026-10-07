@@ -1,10 +1,12 @@
 const keyStorage = 'deep-research.openrouter-api-key'
 const providerStorage = 'deep-research.provider'
 const plannerStorage = 'deep-research.planner-model'
+const scraperStorage = 'deep-research.scraper-model'
 const extractorStorage = 'deep-research.extractor-model'
 const writerStorage = 'deep-research.writer-model'
 const embeddingStorage = 'deep-research.embedding-model'
 const ollamaPlannerStorage = 'deep-research.ollama.planner-model'
+const ollamaScraperStorage = 'deep-research.ollama.scraper-model'
 const ollamaExtractorStorage = 'deep-research.ollama.extractor-model'
 const ollamaWriterStorage = 'deep-research.ollama.writer-model'
 const ollamaEmbeddingStorage = 'deep-research.ollama.embedding-model'
@@ -14,6 +16,7 @@ const tavilyKeyStorage = 'deep-research.tavily-api-key'
 
 export const defaultModels = {
   planner: 'openai/gpt-5-mini',
+  scraper: 'openai/gpt-5-mini',
   extractor: 'google/gemini-3.1-flash-lite',
   writer: 'anthropic/claude-sonnet-5',
   embedding: 'openai/text-embedding-3-small'
@@ -21,6 +24,7 @@ export const defaultModels = {
 
 export type ModelChoice = {
   planner: string
+  scraper: string
   extractor: string
   writer: string
   embedding: string
@@ -32,6 +36,7 @@ export type Provider = 'openrouter' | 'ollama'
 
 export const emptyOllamaModels: ModelChoice = {
   planner: '',
+  scraper: '',
   extractor: '',
   writer: '',
   embedding: ''
@@ -45,6 +50,7 @@ export function fillOllamaModels(
   const embed = catalog.find((model) => model.embedding)
   return {
     planner: current.planner || chat?.id || '',
+    scraper: current.scraper || chat?.id || '',
     extractor: current.extractor || chat?.id || '',
     writer: current.writer || chat?.id || '',
     embedding: current.embedding || embed?.id || ''
@@ -96,12 +102,14 @@ export function readSettings(): ResearchSettings {
     apiKey: readItem(keyStorage),
     models: {
       planner: readItem(plannerStorage) || defaultModels.planner,
+      scraper: readItem(scraperStorage) || defaultModels.scraper,
       extractor: readItem(extractorStorage) || defaultModels.extractor,
       writer: readItem(writerStorage) || defaultModels.writer,
       embedding: readItem(embeddingStorage) || defaultModels.embedding
     },
     ollamaModels: {
       planner: readItem(ollamaPlannerStorage),
+      scraper: readItem(ollamaScraperStorage),
       extractor: readItem(ollamaExtractorStorage),
       writer: readItem(ollamaWriterStorage),
       embedding: readItem(ollamaEmbeddingStorage)
@@ -117,10 +125,12 @@ export function writeSettings(settings: ResearchSettings): void {
     localStorage.setItem(providerStorage, settings.provider)
     localStorage.setItem(keyStorage, settings.apiKey)
     localStorage.setItem(plannerStorage, settings.models.planner)
+    localStorage.setItem(scraperStorage, settings.models.scraper)
     localStorage.setItem(extractorStorage, settings.models.extractor)
     localStorage.setItem(writerStorage, settings.models.writer)
     localStorage.setItem(embeddingStorage, settings.models.embedding)
     localStorage.setItem(ollamaPlannerStorage, settings.ollamaModels.planner)
+    localStorage.setItem(ollamaScraperStorage, settings.ollamaModels.scraper)
     localStorage.setItem(ollamaExtractorStorage, settings.ollamaModels.extractor)
     localStorage.setItem(ollamaWriterStorage, settings.ollamaModels.writer)
     localStorage.setItem(ollamaEmbeddingStorage, settings.ollamaModels.embedding)

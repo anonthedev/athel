@@ -6,6 +6,7 @@ from langchain_ollama import ChatOllama
 from langchain_openrouter import ChatOpenRouter
 
 DEFAULT_PLANNER = "openai/gpt-5-mini"
+DEFAULT_SCRAPER = "openai/gpt-5-mini"
 DEFAULT_EXTRACTOR = "google/gemini-3.1-flash-lite"
 DEFAULT_WRITER = "anthropic/claude-sonnet-5"
 
@@ -18,6 +19,7 @@ class ModelSelection:
     provider: str
     api_key: str
     planner: str
+    scraper: str
     extractor: str
     writer: str
     embedding: str
@@ -50,6 +52,10 @@ def chat_llm(model: str) -> BaseChatModel:
 
 def planner_llm() -> BaseChatModel:
     return chat_llm(current_selection().planner)
+
+
+def scraper_llm() -> BaseChatModel:
+    return chat_llm(current_selection().scraper)
 
 
 def extractor_llm() -> BaseChatModel:

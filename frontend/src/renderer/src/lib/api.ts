@@ -117,6 +117,7 @@ function researchBody(options: ResearchAuth): Record<string, string> {
     provider: options.provider,
     api_key: options.provider === 'ollama' ? '' : options.apiKey,
     planner_model: options.models.planner,
+    scraper_model: options.models.scraper,
     extractor_model: options.models.extractor,
     writer_model: options.models.writer,
     embedding_model: options.models.embedding,

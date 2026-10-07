@@ -90,16 +90,18 @@ def normalize_run_models(
     provider: str,
     api_key: str,
     planner: str,
+    scraper: str,
     extractor: str,
     writer: str,
     embedding: str,
-) -> tuple[str, str, str, str, str, str]:
+) -> tuple[str, str, str, str, str, str, str]:
     provider = require_provider(provider)
     if provider == "ollama":
         return (
             provider,
             "",
             require_ollama_model(planner),
+            require_ollama_model(scraper),
             require_ollama_model(extractor),
             require_ollama_model(writer),
             optional_embedding(embedding, provider),
@@ -108,6 +110,7 @@ def normalize_run_models(
         provider,
         require_api_key(api_key),
         require_model(planner),
+        require_model(scraper),
         require_model(extractor),
         require_model(writer),
         optional_embedding(embedding, provider),
@@ -140,6 +143,7 @@ class ResearchRequest(BaseModel):
     provider: str = "openrouter"
     api_key: str = ""
     planner_model: str
+    scraper_model: str
     extractor_model: str
     writer_model: str
     embedding_model: str
@@ -154,6 +158,7 @@ class ResearchRequest(BaseModel):
             self.provider,
             self.api_key,
             self.planner_model,
+            self.scraper_model,
             self.extractor_model,
             self.writer_model,
             self.embedding_model,
@@ -161,6 +166,7 @@ class ResearchRequest(BaseModel):
             self.provider,
             self.api_key,
             self.planner_model,
+            self.scraper_model,
             self.extractor_model,
             self.writer_model,
             self.embedding_model,
@@ -174,6 +180,7 @@ class ResumeRequest(BaseModel):
     provider: str = "openrouter"
     api_key: str = ""
     planner_model: str
+    scraper_model: str
     extractor_model: str
     writer_model: str
     embedding_model: str
@@ -185,6 +192,7 @@ class ResumeRequest(BaseModel):
             self.provider,
             self.api_key,
             self.planner_model,
+            self.scraper_model,
             self.extractor_model,
             self.writer_model,
             self.embedding_model,
@@ -192,6 +200,7 @@ class ResumeRequest(BaseModel):
             self.provider,
             self.api_key,
             self.planner_model,
+            self.scraper_model,
             self.extractor_model,
             self.writer_model,
             self.embedding_model,
@@ -220,6 +229,7 @@ def selection_for(body: ResearchRequest | ResumeRequest) -> ModelSelection:
         provider=body.provider,
         api_key=body.api_key,
         planner=body.planner_model,
+        scraper=body.scraper_model,
         extractor=body.extractor_model,
         writer=body.writer_model,
         embedding=body.embedding_model,

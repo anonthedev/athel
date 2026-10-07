@@ -401,6 +401,10 @@ export function SettingsDialog({
     const source = provider === 'ollama' ? catalog.filter((model) => model.tools) : catalog
     return choicesFor(source, models.planner, provider !== 'ollama')
   }, [catalog, models.planner, provider])
+  const scraperModels = useMemo(() => {
+    const source = provider === 'ollama' ? catalog.filter((model) => model.tools) : catalog
+    return choicesFor(source, models.scraper, provider !== 'ollama')
+  }, [catalog, models.scraper, provider])
   const extractorModels = useMemo(() => {
     const source = provider === 'ollama' ? catalog.filter((model) => model.tools) : catalog
     return choicesFor(source, models.extractor, provider !== 'ollama')
@@ -421,7 +425,7 @@ export function SettingsDialog({
       : catalog.length === 0
         ? 'No Ollama models are installed.'
         : ollamaToolCount === 0
-          ? 'None of the installed models can call tools. Planner and extractor need one.'
+          ? 'None of the installed models can call tools. Planner, scraper, and extractor need one.'
           : ollamaEmbedCount === 0
             ? 'No embedding model is installed, so PDFs are skipped.'
             : null
@@ -552,9 +556,17 @@ export function SettingsDialog({
             onChange={(planner) => onModelsChange({ ...models, planner })}
           />
           <ModelField
+            id="scraper-model"
+            label="Scraper"
+            hint="Chooses how to read each page, and writes a script when the readers fail."
+            models={scraperModels}
+            value={models.scraper}
+            onChange={(scraper) => onModelsChange({ ...models, scraper })}
+          />
+          <ModelField
             id="extractor-model"
             label="Extractor"
-            hint="Reads pages and pulls out facts."
+            hint="Reads a page and pulls out facts."
             models={extractorModels}
             value={models.extractor}
             onChange={(extractor) => onModelsChange({ ...models, extractor })}
