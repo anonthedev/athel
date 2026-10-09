@@ -10,7 +10,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -21,8 +21,9 @@ from langgraph.runtime import RunControl
 from langgraph.types import Command
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
-from app.graph import graph
+from app.graph import compile_graph, open_checkpointer
 from app.states import gap_mark
+from app.trace import trace_from_history
 from app.llm import OLLAMA_BASE_URL, ModelSelection, reset_selection, use_selection
 from app.nodes.search import reset_tavily_key, use_tavily_key
 
@@ -38,6 +39,8 @@ app.add_middleware(
 )
 
 REPORTS = Path(os.environ.get("DEEP_RESEARCH_REPORTS", Path(__file__).resolve().parent / "reports"))
+THREAD_ID = re.compile(r"^[A-Za-z0-9._:-]{1,80}$")
+graph = compile_graph(open_checkpointer(REPORTS / "checkpoints.sqlite"))
 MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}/[A-Za-z0-9][A-Za-z0-9._:@+-]{0,160}$")
 OLLAMA_MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,200}$")
 MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -133,6 +136,7 @@ def normalize_tavily_key(value: str) -> str:
 ApiKey = Annotated[str, AfterValidator(require_api_key)]
 SearchEngine = Annotated[str, AfterValidator(require_search_engine)]
 TavilyKey = Annotated[str, AfterValidator(normalize_tavily_key)]
+WritingTone = Literal["clear", "academic"]
 
 
 class ResearchRequest(BaseModel):
@@ -147,6 +151,7 @@ class ResearchRequest(BaseModel):
     max_iterations: int = Field(default=3, ge=1, le=10)
     search_engine: SearchEngine = "duckduckgo"
     tavily_api_key: TavilyKey = ""
+    writing_tone: WritingTone = "clear"
 
     @model_validator(mode="after")
     def normalize(self):
@@ -178,6 +183,7 @@ class ResumeRequest(BaseModel):
     writer_model: str
     embedding_model: str
     tavily_api_key: TavilyKey = ""
+    writing_tone: WritingTone = "clear"
 
     @model_validator(mode="after")
     def normalize(self):
@@ -226,12 +232,22 @@ def selection_for(body: ResearchRequest | ResumeRequest) -> ModelSelection:
     )
 
 
-def initial_state(topic: str, max_iterations: int, search_engine: str) -> dict:
+def initial_state(
+    topic: str,
+    max_iterations: int,
+    search_engine: str,
+    provider: str,
+    writing_tone: WritingTone = "clear",
+) -> dict:
     return {
         "topic": topic,
+        "provider": provider,
+        "writing_tone": writing_tone,
         "gaps": [],
         "findings": [],
         "additional_info": [],
+        "planned_queries": [],
+        "calls": [],
         "research_loops": 0,
         "final_report": "",
         "hits": [],
@@ -260,14 +276,26 @@ def report_title(path: Path) -> str:
     return path.stem.replace("-", " ")
 
 
-def save_report(report: str, topic: str) -> Path:
+def save_report(report: str, topic: str, thread_id: str) -> Path:
     REPORTS.mkdir(parents=True, exist_ok=True)
     slug = slugify(topic)
     if not valid_slug(slug):
         raise ValueError("Topic did not produce a report filename")
     path = REPORTS / f"{slug}.md"
     path.write_text(report.strip() + "\n", encoding="utf-8")
+    if THREAD_ID.fullmatch(thread_id):
+        (REPORTS / f"{slug}.thread").write_text(thread_id + "\n", encoding="utf-8")
     return path
+
+
+def thread_for(slug: str) -> str | None:
+    path = REPORTS / f"{slug}.thread"
+    if not path.is_file():
+        return None
+    thread_id = path.read_text(encoding="utf-8").strip()
+    if not THREAD_ID.fullmatch(thread_id):
+        return None
+    return thread_id
 
 
 def sse(event: dict) -> str:
@@ -439,6 +467,7 @@ def events_from(node: str, update: dict) -> list[dict]:
                 "note": finding.note,
             }
             for finding in update.get("findings", [])
+            if finding.note.strip() or finding.additional.strip()
         ]
         events.extend({"type": "dead_url", "url": url} for url in update.get("dead_urls", []))
         return events
@@ -482,7 +511,7 @@ def finish_stream(
     if report:
         if run_aborted(thread_id):
             return
-        save_report(report, topic)
+        save_report(report, topic, thread_id)
     if run_aborted(thread_id):
         return
     publish(loop, queue, {"type": "done"})
@@ -517,7 +546,13 @@ async def research(body: ResearchRequest, request: Request):
                 loop,
                 queue,
                 graph.stream(
-                    initial_state(body.topic, body.max_iterations, body.search_engine),
+                    initial_state(
+                        body.topic,
+                        body.max_iterations,
+                        body.search_engine,
+                        body.provider,
+                        body.writing_tone,
+                    ),
                     config=config,
                     control=control,
                     stream_mode=["updates", "custom"],
@@ -564,7 +599,10 @@ async def resume_research(thread_id: str, body: ResumeRequest, request: Request)
                 loop,
                 queue,
                 graph.stream(
-                    Command(resume={"questions": questions}),
+                    Command(
+                        resume={"questions": questions},
+                        update={"writing_tone": body.writing_tone},
+                    ),
                     config=config,
                     control=control,
                     stream_mode=["updates", "custom"],
@@ -616,6 +654,17 @@ def list_reports() -> list[ReportSummary]:
     ]
     reports.sort(key=lambda item: item.updated_at, reverse=True)
     return reports
+
+
+@app.get("/reports/{slug}/trace")
+def read_trace(slug: str):
+    if not valid_slug(slug):
+        raise HTTPException(status_code=404, detail="Report not found")
+    thread_id = thread_for(slug)
+    if thread_id is None:
+        raise HTTPException(status_code=404, detail="Usage was not saved for this report")
+    history = list(graph.get_state_history({"configurable": {"thread_id": thread_id}}))
+    return trace_from_history(history)
 
 
 @app.get("/reports/{slug}")

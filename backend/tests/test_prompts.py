@@ -15,10 +15,19 @@ class PromptTests(unittest.TestCase):
         page = extract_page("what is safe", "The trial enrolled 96 adults.")
         self.assertIn("Question:\nwhat is safe", page)
         self.assertTrue(page.endswith("The trial enrolled 96 adults."))
-        report = write_report("caffeine", "notes here", "extra here")
+        report = write_report("caffeine", "notes here", "extra here", "academic")
         self.assertIn("Topic:\ncaffeine", report)
-        self.assertIn("Notes:\nnotes here", report)
+        self.assertIn("Evidence grouped by coverage question:\nnotes here", report)
+        self.assertIn("Academic.", report)
         self.assertTrue(report.endswith("extra here"))
+
+    def test_report_prompt_requires_synthesis_without_padding(self):
+        report = write_report("rete ovarii", "evidence", "more evidence", "clear")
+        self.assertIn("There is no target word count", report)
+        self.assertIn("genuinely different point", report)
+        self.assertIn("preprint/published/repository versions", report)
+        self.assertIn("not a transcript of the research process", report)
+        self.assertIn("Clear and accessible.", report)
 
     def test_a_page_with_braces_is_not_treated_as_a_template(self):
         page = extract_page("cost", "Price is {18,999}.")

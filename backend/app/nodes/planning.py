@@ -1,7 +1,8 @@
 from app.progress import announce
-from app.states import OverallState, KnowledgeGap, Finding, SourcedNote
+from app.states import OverallState, KnowledgeGap, Finding, PlannedQuery, SourcedNote
 from app.llm import planner_llm
 from app.prompts import followup_queries, gaps, missing_parts, search_queries
+from app.usage import collect_calls, structured
 from pydantic import BaseModel
 from langgraph.types import Send, Command
 from langgraph.types import interrupt
@@ -10,13 +11,15 @@ def generate_gaps(state: OverallState):
     class GapList(BaseModel):
         questions: list[str]
 
-    result = planner_llm().with_structured_output(GapList).invoke(gaps(state["topic"]))
-    return {
-        "gaps": [
-            KnowledgeGap(id=index, question=question)
-            for index, question in enumerate(result.questions[:12], start=1)
-        ]
-    }
+    with collect_calls() as recorded:
+        result = structured(planner_llm(), GapList, gaps(state["topic"]), role="planner", label="Draft questions")
+        return {
+            "gaps": [
+                KnowledgeGap(id=index, question=question)
+                for index, question in enumerate(result.questions[:12], start=1)
+            ],
+            "calls": list(recorded),
+        }
 
 def fan_out_gaps(state: OverallState):
     pending = [gap for gap in state["gaps"] if gap.status == "pending" and gap.attempts < state["max_iterations"]]
@@ -73,7 +76,9 @@ def draft_queries(state: dict) -> Command:
     else:
         prompt = search_queries(gap.question)
 
-    result = planner_llm().with_structured_output(QueryList).invoke(prompt)
+    with collect_calls() as recorded:
+        result = structured(planner_llm(), QueryList, prompt, role="planner", label=gap.question)
+        queries = result.queries[:4]
 
     blocked = state.get("blocked_domains", []) if isinstance(state, dict) else []
     engine = state.get("search_engine", "tavily") if isinstance(state, dict) else "tavily"
@@ -83,6 +88,10 @@ def draft_queries(state: dict) -> Command:
         question = gap.question + "\nStill needed:\n" + "\n".join(gap.missing)
 
     return Command(
+        update={
+            "calls": list(recorded),
+            "planned_queries": [PlannedQuery(question=gap.question, queries=queries)],
+        },
         goto=[
             Send(
                 "search",
@@ -94,9 +103,37 @@ def draft_queries(state: dict) -> Command:
                     "search_engine": engine,
                 },
             )
-            for query in result.queries[:4]
-        ]
+            for query in queries
+        ],
     )
+
+_COLLAPSE = "What do the available sources actually say about "
+
+
+def collapse_question(topic: str) -> str:
+    return f"{_COLLAPSE}{topic.strip()}?"
+
+
+def topic_of_collapse(question: str) -> str | None:
+    line = question.split("\n", 1)[0].strip()
+    if not line.startswith(_COLLAPSE) or not line.endswith("?"):
+        return None
+    topic = line[len(_COLLAPSE) : -1].strip()
+    return topic or None
+
+
+def collapse_empty_wave(
+    gaps: list[KnowledgeGap], topic: str, *, first_wave: bool
+) -> list[KnowledgeGap]:
+    if not first_wave:
+        return gaps
+    empty = [gap for gap in gaps if not gap.notes]
+    if len(empty) < 2 or len(empty) * 2 <= len(gaps):
+        return gaps
+    kept = [gap for gap in gaps if gap.notes]
+    kept.append(KnowledgeGap(id=max(gap.id for gap in gaps) + 1, question=collapse_question(topic)))
+    return kept
+
 
 def sourced_notes(findings: list[Finding], field: str) -> list[SourcedNote]:
     seen = set()
@@ -110,40 +147,47 @@ def sourced_notes(findings: list[Finding], field: str) -> list[SourcedNote]:
         notes.append(SourcedNote(note=text, source=finding.source))
     return notes
 
-def update_checklist(state: OverallState) -> Command:
+def update_checklist(state: OverallState) -> dict:
     announce("Checking for gaps")
     class MissingList(BaseModel):
         missing: list[str]
-    
-    extras = []
+
+    first_wave = all(gap.attempts == 0 for gap in state["gaps"])
     updated = []
+    # Side notes are kept across waves, including gaps this pass collapses away.
+    extras = sourced_notes(state["findings"], "additional")
 
-    for gap in state["gaps"]:
-        gap = gap.model_copy(deep=True)
+    with collect_calls() as recorded:
+        for gap in state["gaps"]:
+            gap = gap.model_copy(deep=True)
 
-        if gap.status in ("resolved", "partial", "failed"):
+            if gap.status in ("resolved", "partial", "failed"):
+                updated.append(gap)
+                continue
+
+            mine = [finding for finding in state["findings"] if finding.gap_id == gap.id]
+            answering = [finding for finding in mine if finding.answers_gap and finding.note.strip()]
+            gap.notes = sourced_notes(answering, "note")
+
+            if gap.notes:
+                listed = "\n".join(f"- {note.note}\n  source: {note.source}" for note in gap.notes)
+                result = structured(
+                    planner_llm(),
+                    MissingList,
+                    missing_parts(gap.question, listed),
+                    role="planner",
+                    label=gap.question,
+                )
+                gap.missing = result.missing
+            else:
+                gap.missing = [gap.question]
+            if gap.notes and not gap.missing:
+                gap.status = "resolved"
+            else:
+                gap.attempts += 1
+                if gap.attempts >= state["max_iterations"]:
+                    gap.status = "partial" if gap.notes else "failed"
             updated.append(gap)
-            continue
-
-        mine = [finding for finding in state["findings"] if finding.gap_id == gap.id]
-        answering = [finding for finding in mine if finding.answers_gap and finding.note.strip()]
-        extras.extend(sourced_notes(mine, "additional"))
-        gap.notes = sourced_notes(answering, "note")
-
-        if gap.notes:
-            listed = "\n".join(f"- {note.note}\n  source: {note.source}" for note in gap.notes)
-            result = planner_llm().with_structured_output(MissingList).invoke(
-                missing_parts(gap.question, listed)
-            )
-
-            gap.missing = result.missing
-        else:
-            gap.missing = [gap.question]
-        if gap.notes and not gap.missing:
-            gap.status = "resolved"
-        else:
-            gap.attempts += 1
-            if gap.attempts >= state["max_iterations"]:
-                gap.status = "partial" if gap.notes else "failed"
-        updated.append(gap)
-    return {"gaps": updated, "additional_info": extras}
+        calls = list(recorded)
+    updated = collapse_empty_wave(updated, state["topic"], first_wave=first_wave)
+    return {"gaps": updated, "additional_info": extras, "calls": calls}

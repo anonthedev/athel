@@ -60,6 +60,86 @@ def find_doi(value: str) -> str | None:
     return match.group(0).rstrip(".,);")
 
 
+def work_id_from_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower().removeprefix("www.")
+    if host not in {"openalex.org", "api.openalex.org"}:
+        return None
+    match = re.search(r"(W\d+)", parsed.path)
+    return match.group(1) if match else None
+
+
+def page_url(work: dict) -> str:
+    match = re.search(r"(W\d+)", str(work.get("id") or ""))
+    if not match:
+        return ""
+    return f"https://openalex.org/{match.group(1)}"
+
+
+def search_works(query: str, fetch=get, limit: int = 3) -> list[dict]:
+    query = " ".join(query.split())
+    if not query:
+        return []
+    url = f"https://api.openalex.org/works?search={quote(query)}&per-page={limit}"
+    payload = _json(fetch(url, headers={"Accept": "application/json"}))
+    if not isinstance(payload, dict):
+        return []
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return []
+    works = []
+    for work in results:
+        if not isinstance(work, dict):
+            continue
+        if not abstract_text(work.get("abstract_inverted_index")):
+            continue
+        if not page_url(work):
+            continue
+        works.append(work)
+    return works
+
+
+def work_urls(query: str, known_dois: set[str], fetch=get) -> list[str]:
+    urls = []
+    for work in search_works(query, fetch=fetch):
+        doi = find_doi(str(work.get("doi") or ""))
+        if doi and doi in known_dois:
+            continue
+        page = page_url(work)
+        if page and page not in urls:
+            urls.append(page)
+    return urls
+
+
+def load_work(url: str, question: str, fetch=get) -> tuple[str, str, str] | None:
+    del question
+    work_id = work_id_from_url(url)
+    if not work_id:
+        return None
+    work = _openalex_id(work_id, fetch)
+    if not isinstance(work, dict):
+        return None
+    text = render_work(work)
+    if not text:
+        return None
+    doi = find_doi(str(work.get("doi") or ""))
+    source = f"https://doi.org/{doi}" if doi else f"https://openalex.org/{work_id}"
+    return text, source, choose_pdf(work.get("locations") or [])
+
+
+def with_excerpt(text: str, excerpt: str) -> str:
+    if not excerpt:
+        return text
+    room = TEXT_LIMIT - len(text) - 2
+    if room <= 400:
+        return text
+    return _clip(f"{text}\n\n{excerpt[:room].rstrip()}")
+
+
+def excerpt_pdf(pdf_url: str, question: str, fetch=get) -> str:
+    return _pdf_excerpt(pdf_url, question, fetch)
+
+
 def resolve(doi: str, question: str, fetch) -> tuple[str, str] | None:
     work = _openalex(doi, fetch)
     if not isinstance(work, dict):
@@ -143,7 +223,15 @@ def choose_pdf(locations: list) -> str:
 
 def _openalex(doi: str, fetch) -> dict | None:
     url = f"https://api.openalex.org/works/https://doi.org/{quote(doi, safe='')}"
-    payload = _json(fetch(url, headers={"Accept": "application/json"}))
+    return _work(fetch(url, headers={"Accept": "application/json"}))
+
+
+def _openalex_id(work_id: str, fetch) -> dict | None:
+    return _work(fetch(f"https://api.openalex.org/works/{work_id}", headers={"Accept": "application/json"}))
+
+
+def _work(response: Response | None) -> dict | None:
+    payload = _json(response)
     if not isinstance(payload, dict):
         return None
     if payload.get("title") or payload.get("display_name"):

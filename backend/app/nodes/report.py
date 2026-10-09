@@ -5,6 +5,7 @@ from app.progress import announce
 from app.states import OverallState
 from app.llm import writer_llm
 from app.prompts import write_report
+from app.usage import collect_calls, complete
 
 _LINK = re.compile(r"(!?\[[^\[\]]*\]\()([^)\s]+)(\))")
 
@@ -64,6 +65,18 @@ def write_final_report(state: OverallState) -> dict:
         )
     extra = "\n".join(f"- {item.note}\n  source: {item.source}" for item in state["additional_info"]) or "- None."
 
-    result = writer_llm().invoke(write_report(state["topic"], "\n".join(checklist), extra))
+    with collect_calls() as recorded:
+        result = complete(
+            writer_llm(),
+            write_report(
+                state["topic"],
+                "\n".join(checklist),
+                extra,
+                state.get("writing_tone", "clear"),
+            ),
+            role="writer",
+            label="Write the report",
+        )
+        calls = list(recorded)
     markdown = restore_citation_urls(result.content, citation_urls(state))
-    return {"final_report": ensure_heading(markdown, state["topic"])}
+    return {"final_report": ensure_heading(markdown, state["topic"]), "calls": calls}

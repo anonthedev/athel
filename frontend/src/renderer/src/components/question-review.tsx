@@ -15,7 +15,6 @@ type QuestionReviewProps = {
   onChange: (questions: DraftQuestion[]) => void
   onContinue: () => void
   onAbort: () => void
-  onOpenSettings: () => void
   leading?: ReactNode
 }
 
@@ -26,7 +25,6 @@ export function QuestionReview({
   onChange,
   onContinue,
   onAbort,
-  onOpenSettings,
   leading
 }: QuestionReviewProps): React.JSX.Element {
   const fields = useRef<Array<HTMLTextAreaElement | null>>([])
@@ -148,7 +146,7 @@ export function QuestionReview({
               Add a question
             </Button>
           ) : (
-            <p className="text-sm text-muted-foreground">Seven questions is the limit.</p>
+            <p className="text-sm text-muted-foreground">12 questions is the limit.</p>
           )}
           {error ? (
             <p role="alert" className="text-sm text-destructive">

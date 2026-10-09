@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
-import { Eye, EyeOff, Minus, Plus } from 'lucide-react'
+import { Eye, EyeOff, Minus, Plus, SettingsIcon } from 'lucide-react'
 import {
   Combobox,
   ComboboxContent,
@@ -9,18 +9,12 @@ import {
   ComboboxList
 } from '@/components/ui/combobox'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { ApiError, checkOpenRouterKey, type OpenRouterModel } from '@/lib/api'
-import { hasTavilyKey, type ModelChoice, type Provider, type SearchEngine } from '@/lib/settings'
+import { hasTavilyKey, type ModelChoice, type Provider, type SearchEngine, type WritingTone } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 
 type KeyStatus = 'idle' | 'checking' | 'accepted' | 'rejected' | 'invalid' | 'unreachable'
@@ -42,6 +36,8 @@ type ResearchOptionsProps = KeyProps & {
   onSearchEngineChange: (value: SearchEngine) => void
   tavilyKey: string
   onTavilyKeyChange: (value: string) => void
+  writingTone: WritingTone
+  onWritingToneChange: (value: WritingTone) => void
   catalog: OpenRouterModel[]
   catalogLoaded?: boolean
   catalogError: string | null
@@ -49,11 +45,7 @@ type ResearchOptionsProps = KeyProps & {
   embeddingCatalogError: string | null
 }
 
-function choicesFor(
-  catalog: OpenRouterModel[],
-  selectedId: string,
-  requireTools: boolean
-): OpenRouterModel[] {
+function choicesFor(catalog: OpenRouterModel[], selectedId: string, requireTools: boolean): OpenRouterModel[] {
   const filtered = requireTools ? catalog.filter((model) => model.tools) : catalog
   if (!selectedId || filtered.some((model) => model.id === selectedId)) return filtered
   const existing = catalog.find((model) => model.id === selectedId)
@@ -64,10 +56,7 @@ function modelName(models: OpenRouterModel[], id: string): string {
   return models.find((model) => model.id === id)?.name ?? id.split('/').at(-1) ?? 'Model'
 }
 
-export function useApiKeyStatus(
-  apiKey: string,
-  onKeyRejectedChange: (rejected: boolean) => void
-): KeyStatus {
+export function useApiKeyStatus(apiKey: string, onKeyRejectedChange: (rejected: boolean) => void): KeyStatus {
   const [status, setStatus] = useState<KeyStatus>(() => {
     const key = apiKey.trim()
     if (key.length < 8) return 'idle'
@@ -138,8 +127,7 @@ function ApiKeyField({
   const [visible, setVisible] = useState(false)
   const message = keyMessage(status)
   const failed = status === 'rejected' || status === 'invalid'
-  const tone =
-    failed ? 'text-destructive' : status === 'accepted' ? 'text-success' : 'text-muted-foreground'
+  const tone = failed ? 'text-destructive' : status === 'accepted' ? 'text-success' : 'text-muted-foreground'
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -260,11 +248,7 @@ function TavilyKeyField({
         id={`${id}-status`}
         aria-live="polite"
         className={
-          invalid
-            ? 'text-sm text-destructive'
-            : attention
-              ? 'text-sm text-warning'
-              : 'text-sm text-muted-foreground'
+          invalid ? 'text-sm text-destructive' : attention ? 'text-sm text-warning' : 'text-sm text-muted-foreground'
         }
       >
         {message}
@@ -311,16 +295,17 @@ function ModelField({
   value: string
   onChange: (id: string) => void
 }): React.JSX.Element {
-  const selected = useMemo(
-    () => models.find((model) => model.id === value) ?? null,
-    [models, value]
-  )
+  const selected = useMemo(() => models.find((model) => model.id === value) ?? null, [models, value])
 
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       <div className="flex flex-col gap-0.5">
-        <Label htmlFor={id} className="text-sm font-medium">{label}</Label>
-        <p id={`${id}-hint`} className="text-sm text-muted-foreground">{hint}</p>
+        <Label htmlFor={id} className="text-sm font-medium">
+          {label}
+        </Label>
+        <p id={`${id}-hint`} className="text-sm text-muted-foreground">
+          {hint}
+        </p>
       </div>
       <Combobox
         items={models}
@@ -386,6 +371,8 @@ export function SettingsDialog({
   onSearchEngineChange,
   tavilyKey,
   onTavilyKeyChange,
+  writingTone,
+  onWritingToneChange,
   catalog,
   catalogLoaded = true,
   catalogError,
@@ -446,7 +433,9 @@ export function SettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[min(40rem,calc(100%-2rem))] gap-5 overflow-y-auto p-6 sm:max-w-lg">
         <DialogHeader className="pr-8">
-          <DialogTitle>Settings</DialogTitle>
+          <DialogTitle>
+            <SettingsIcon />
+          </DialogTitle>
           <DialogDescription>Keys, search, and the models used for the next report.</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">
@@ -487,8 +476,8 @@ export function SettingsDialog({
         <SettingsSection title="Follow-up searches">
           <div className="flex items-center justify-between gap-4">
             <p id="follow-up-hint" className="text-sm text-muted-foreground">
-              When a question is still open, search again up to {maxIterations}{' '}
-              {maxIterations === 1 ? 'time' : 'times'}.
+              When a question is still open, search again up to {maxIterations} {maxIterations === 1 ? 'time' : 'times'}
+              .
             </p>
             <div className="flex shrink-0 items-center gap-1" role="group" aria-labelledby="follow-up-hint">
               <Button
@@ -516,6 +505,33 @@ export function SettingsDialog({
               </Button>
             </div>
           </div>
+        </SettingsSection>
+        <SettingsSection title="Writing style">
+          <RadioGroup
+            value={writingTone}
+            onValueChange={(value) => {
+              if (value === 'clear' || value === 'academic') onWritingToneChange(value)
+            }}
+            aria-label="Writing style"
+            className="gap-2"
+          >
+            <SearchChoice
+              group="writing-tone"
+              value="clear"
+              title="Clear"
+              detail="Direct, accessible prose with technical terms explained."
+              selected={writingTone === 'clear'}
+              onSelect={() => onWritingToneChange('clear')}
+            />
+            <SearchChoice
+              group="writing-tone"
+              value="academic"
+              title="Academic"
+              detail="Formal scholarly prose for a specialist reader."
+              selected={writingTone === 'academic'}
+              onSelect={() => onWritingToneChange('academic')}
+            />
+          </RadioGroup>
         </SettingsSection>
         <SettingsSection title="Models">
           <RadioGroup

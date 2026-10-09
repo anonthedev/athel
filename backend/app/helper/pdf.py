@@ -94,6 +94,9 @@ def _embeddings(texts: list[str]) -> list[list[float]] | None:
                 body = json.load(response)
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
             return None
+        from app.usage import note_embedding
+
+        note_embedding(body)
         data = body.get("data") if isinstance(body, dict) else None
         if not isinstance(data, list):
             return None

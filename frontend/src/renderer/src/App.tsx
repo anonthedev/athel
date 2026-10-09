@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type Ref } from 'react'
-import { Folder, Moon, PanelLeft, PanelLeftClose, Plus, Settings, SettingsIcon, Sun } from 'lucide-react'
+import { ChartColumn, Folder, Moon, PanelLeft, PanelLeftClose, Plus, Settings, SettingsIcon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -9,6 +9,7 @@ import { MarkdownReport } from '@/components/markdown-report'
 import { QuestionReview } from '@/components/question-review'
 import { ApiKeyPrompt, SettingsDialog, useApiKeyStatus } from '@/components/research-setup'
 import { ResearchTrace, runStatusLabel, type DraftQuestion, type ResearchRun } from '@/components/research-trace'
+import { ResearchUsage } from '@/components/research-usage'
 import {
   abortResearch,
   getReport,
@@ -25,10 +26,10 @@ import {
 } from '@/lib/api'
 import { fillOllamaModels, readSettings, writeSettings, type Provider } from '@/lib/settings'
 import { applyTheme, readTheme, type Theme } from '@/lib/theme'
-import { tracePreviewRun } from '@/lib/trace-preview'
 import { cn } from '@/lib/utils'
 
-type Screen = { type: 'compose' } | { type: 'trace'; id: string } | { type: 'report'; slug: string } | { type: 'preview' }
+type Screen =
+  { type: 'compose' } | { type: 'trace'; id: string } | { type: 'report'; slug: string } | { type: 'preview' }
 
 function screenFromLocation(): Screen {
   if (window.location.hash === '#preview') return { type: 'preview' }
@@ -58,13 +59,7 @@ function readSidebarOpen(): boolean {
   }
 }
 
-function SettingsButton({
-  onClick,
-  className
-}: {
-  onClick: () => void
-  className?: string
-}): React.JSX.Element {
+function SettingsButton({ onClick, className }: { onClick: () => void; className?: string }): React.JSX.Element {
   return (
     <button
       type="button"
@@ -126,6 +121,7 @@ function App(): React.JSX.Element {
   const [screen, setScreen] = useState<Screen>(screenFromLocation)
   const [topic, setTopic] = useState('')
   const [article, setArticle] = useState<Article | null>(null)
+  const [usageOpen, setUsageOpen] = useState(false)
   const [reportError, setReportError] = useState<string | null>(null)
   const [listError, setListError] = useState<string | null>(null)
   const [loadingList, setLoadingList] = useState(true)
@@ -139,6 +135,7 @@ function App(): React.JSX.Element {
   const [maxIterations, setMaxIterations] = useState(() => readSettings().maxIterations)
   const [searchEngine, setSearchEngine] = useState(() => readSettings().searchEngine)
   const [tavilyKey, setTavilyKey] = useState(() => readSettings().tavilyKey)
+  const [writingTone, setWritingTone] = useState(() => readSettings().writingTone)
   const [catalog, setCatalog] = useState<OpenRouterModel[]>([])
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [embeddingCatalog, setEmbeddingCatalog] = useState<OpenRouterModel[]>([])
@@ -163,6 +160,7 @@ function App(): React.JSX.Element {
   function go(next: Screen): void {
     userNavigated.current = true
     screenRef.current = next
+    setUsageOpen(false)
     setScreen(next)
     const hash = next.type === 'preview' ? '#preview' : ''
     if (next.type === 'preview' || window.location.hash === '#preview') {
@@ -198,8 +196,17 @@ function App(): React.JSX.Element {
   }, [setSidebar, sidebarOpen])
 
   useEffect(() => {
-    writeSettings({ provider, apiKey, models, ollamaModels, maxIterations, searchEngine, tavilyKey })
-  }, [provider, apiKey, models, ollamaModels, maxIterations, searchEngine, tavilyKey])
+    writeSettings({
+      provider,
+      apiKey,
+      models,
+      ollamaModels,
+      maxIterations,
+      searchEngine,
+      tavilyKey,
+      writingTone
+    })
+  }, [provider, apiKey, models, ollamaModels, maxIterations, searchEngine, tavilyKey, writingTone])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -321,11 +328,20 @@ function App(): React.JSX.Element {
       return
     }
     if (researchEvent.type === 'error') {
-      patchRun(id, (item) => ({ ...item, status: 'error', activity: null, error: researchEvent.message }))
+      patchRun(id, (item) => ({
+        ...item,
+        status: 'error',
+        activity: null,
+        error: researchEvent.message
+      }))
       return
     }
     if (researchEvent.type === 'done' || researchEvent.type === 'gaps') return
-    patchRun(id, (item) => ({ ...item, activity: null, events: [...item.events, researchEvent] }))
+    patchRun(id, (item) => ({
+      ...item,
+      activity: null,
+      events: [...item.events, researchEvent]
+    }))
   }
 
   async function openFinishedReport(id: string, nextTopic: string, reportMarkdown: string): Promise<void> {
@@ -417,6 +433,7 @@ function App(): React.JSX.Element {
             apiKey: nextKey,
             models: chosen,
             tavilyKey,
+            writingTone,
             threadId: id,
             maxIterations,
             searchEngine
@@ -448,7 +465,10 @@ function App(): React.JSX.Element {
       .filter(Boolean)
       .slice(0, 12)
     if (questions.length === 0) {
-      patchRun(id, (item) => ({ ...item, reviewError: 'Add at least one question' }))
+      patchRun(id, (item) => ({
+        ...item,
+        reviewError: 'Add at least one question'
+      }))
       return
     }
 
@@ -470,7 +490,7 @@ function App(): React.JSX.Element {
         await resumeResearch(
           id,
           questions,
-          { provider, apiKey: nextKey, models: chosen, tavilyKey },
+          { provider, apiKey: nextKey, models: chosen, tavilyKey, writingTone },
           (researchEvent) => {
             applyEvent(id, researchEvent, report, paused)
           },
@@ -480,7 +500,11 @@ function App(): React.JSX.Element {
         if (abortedRuns.current.has(id)) return
         if (cause instanceof DOMException && cause.name === 'AbortError') return
         const message = cause instanceof Error ? cause.message : 'Research failed'
-        patchRun(id, (item) => ({ ...item, status: 'review', reviewError: message }))
+        patchRun(id, (item) => ({
+          ...item,
+          status: 'review',
+          reviewError: message
+        }))
         return
       } finally {
         continuing.current.delete(id)
@@ -499,9 +523,7 @@ function App(): React.JSX.Element {
   const modelsReady = Boolean(activeModels.planner && activeModels.extractor && activeModels.writer)
   const composeReady = provider === 'ollama' || keyReady
   const activeRun = runs.find((run) => screen.type === 'trace' && run.id === screen.id)
-  const ongoing = runs.filter(
-    (run) => run.status === 'running' || run.status === 'review' || run.status === 'error'
-  )
+  const ongoing = runs.filter((run) => run.status === 'running' || run.status === 'review' || run.status === 'error')
 
   return (
     <div className="flex h-full min-h-0 w-full bg-background font-sans text-foreground">
@@ -515,24 +537,24 @@ function App(): React.JSX.Element {
         )}
       >
         <div className="flex h-full w-72 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-        <div className="flex items-center justify-between gap-2 px-3 pt-3">
-          <span className="px-1 text-base font-medium tracking-[-0.03em]">Athel</span>
-          <SidebarToggle
-            open
-            buttonRef={collapseRef}
-            className="hover:bg-sidebar-accent"
-            onClick={() => setSidebar(false)}
-          />
-        </div>
-        <div className="px-3 pt-3 pb-2">
-          <Button type="button" className="w-full" onClick={() => go({ type: 'compose' })}>
-            <Plus />
-            New research
-          </Button>
-        </div>
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="flex flex-col gap-1 px-2 pb-4">
-            {/* <ul className="flex flex-col">
+          <div className="flex items-center justify-between gap-2 px-3 pt-3">
+            <span className="px-1 text-base font-medium tracking-[-0.03em]">Athel</span>
+            <SidebarToggle
+              open
+              buttonRef={collapseRef}
+              className="hover:bg-sidebar-accent"
+              onClick={() => setSidebar(false)}
+            />
+          </div>
+          <div className="px-3 pt-3 pb-2">
+            <Button type="button" className="w-full" onClick={() => go({ type: 'compose' })}>
+              <Plus />
+              New research
+            </Button>
+          </div>
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="flex flex-col gap-1 px-2 pb-4">
+              {/* <ul className="flex flex-col">
               <li>
                 <button
                   type="button"
@@ -549,108 +571,108 @@ function App(): React.JSX.Element {
                 </button>
               </li>
             </ul> */}
-            {ongoing.length > 0 ? (
-              <h2 className="px-3 pt-3 pb-1 text-sm text-muted-foreground">Ongoing research</h2>
-            ) : null}
-            <ul className="flex flex-col">
-              {ongoing.map((run) => {
-                const current = screen.type === 'trace' && screen.id === run.id
-                return (
-                  <li key={run.id}>
-                    <button
-                      type="button"
-                      title={run.topic}
-                      aria-current={current ? 'page' : undefined}
-                      className={cn(
-                        'relative flex w-full flex-col items-start gap-0.5 rounded-md py-2 pr-2 pl-3 text-left hover:bg-sidebar-accent',
-                        current &&
-                          'bg-sidebar-accent before:absolute before:top-2 before:bottom-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
-                      )}
-                      onClick={() => go({ type: 'trace', id: run.id })}
-                    >
-                      <span className="line-clamp-2 text-sm font-medium">{run.topic}</span>
-                      <span
+              {ongoing.length > 0 ? (
+                <h2 className="px-3 pt-3 pb-1 text-sm text-muted-foreground">Ongoing research</h2>
+              ) : null}
+              <ul className="flex flex-col">
+                {ongoing.map((run) => {
+                  const current = screen.type === 'trace' && screen.id === run.id
+                  return (
+                    <li key={run.id}>
+                      <button
+                        type="button"
+                        title={run.topic}
+                        aria-current={current ? 'page' : undefined}
                         className={cn(
-                          'inline-flex items-center gap-2 text-sm text-muted-foreground',
-                          run.status === 'error' && 'text-destructive'
+                          'relative flex w-full flex-col items-start gap-0.5 rounded-md py-2 pr-2 pl-3 text-left hover:bg-sidebar-accent',
+                          current &&
+                            'bg-sidebar-accent before:absolute before:top-2 before:bottom-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
                         )}
+                        onClick={() => go({ type: 'trace', id: run.id })}
                       >
-                        {run.status === 'running' ? (
-                          <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
-                        ) : null}
-                        {runStatusLabel(run)}
-                      </span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
+                        <span className="line-clamp-2 text-sm font-medium">{run.topic}</span>
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-2 text-sm text-muted-foreground',
+                            run.status === 'error' && 'text-destructive'
+                          )}
+                        >
+                          {run.status === 'running' ? (
+                            <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
+                          ) : null}
+                          {runStatusLabel(run)}
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
 
-            <div className="flex items-center justify-between px-3 pt-3 pb-1">
-              <h2 className="text-sm text-muted-foreground">Reports</h2>
-              <button
-                type="button"
-                aria-label="Open reports folder"
-                className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
-                onClick={() => void window.api.openReportsFolder()}
-              >
-                <Folder className="size-4" />
-              </button>
-            </div>
-            {loadingList ? (
-              <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
-                <Spinner />
-                Loading reports
+              <div className="flex items-center justify-between px-3 pt-3 pb-1">
+                <h2 className="text-sm text-muted-foreground">Reports</h2>
+                <button
+                  type="button"
+                  aria-label="Open reports folder"
+                  className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                  onClick={() => void window.api.openReportsFolder()}
+                >
+                  <Folder className="size-4" />
+                </button>
               </div>
-            ) : null}
-            {listError ? (
-              <p role="alert" className="px-3 py-2 text-sm text-destructive">
-                {listError}
-              </p>
-            ) : null}
-            {!loadingList && reports.length === 0 ? (
-              <p className="px-3 py-3 text-sm text-muted-foreground">No reports yet.</p>
-            ) : null}
-            <ul className="flex flex-col">
-              {reports.map((report) => {
-                const current = screen.type === 'report' && screen.slug === report.slug
-                return (
-                  <li key={report.slug}>
-                    <button
-                      type="button"
-                      title={report.title}
-                      aria-current={current ? 'page' : undefined}
-                      className={cn(
-                        'relative flex w-full flex-col items-start gap-0.5 rounded-md py-2 pr-2 pl-3 text-left hover:bg-sidebar-accent',
-                        current &&
-                          'bg-sidebar-accent before:absolute before:top-2 before:bottom-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
-                      )}
-                      onClick={() => void openSaved(report)}
-                    >
-                      <span className="line-clamp-2 text-sm font-medium">{report.title}</span>
-                      <span className="text-sm text-muted-foreground">{formatUpdated(report.updated_at)}</span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
+              {loadingList ? (
+                <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
+                  <Spinner />
+                  Loading reports
+                </div>
+              ) : null}
+              {listError ? (
+                <p role="alert" className="px-3 py-2 text-sm text-destructive">
+                  {listError}
+                </p>
+              ) : null}
+              {!loadingList && reports.length === 0 ? (
+                <p className="px-3 py-3 text-sm text-muted-foreground">No reports yet.</p>
+              ) : null}
+              <ul className="flex flex-col">
+                {reports.map((report) => {
+                  const current = screen.type === 'report' && screen.slug === report.slug
+                  return (
+                    <li key={report.slug}>
+                      <button
+                        type="button"
+                        title={report.title}
+                        aria-current={current ? 'page' : undefined}
+                        className={cn(
+                          'relative flex w-full flex-col items-start gap-0.5 rounded-md py-2 pr-2 pl-3 text-left hover:bg-sidebar-accent',
+                          current &&
+                            'bg-sidebar-accent before:absolute before:top-2 before:bottom-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
+                        )}
+                        onClick={() => void openSaved(report)}
+                      >
+                        <span className="line-clamp-2 text-sm font-medium">{report.title}</span>
+                        <span className="text-sm text-muted-foreground">{formatUpdated(report.updated_at)}</span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          </ScrollArea>
+          <div className="flex items-center justify-between gap-2 border-t border-sidebar-border px-2 py-2">
+            <SettingsButton onClick={() => setSettingsOpen(true)} className="hover:bg-sidebar-accent" />
+            <button
+              type="button"
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+              onClick={() => {
+                const next = theme === 'dark' ? 'light' : 'dark'
+                setTheme(next)
+                applyTheme(next)
+              }}
+            >
+              {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            </button>
           </div>
-        </ScrollArea>
-        <div className="flex items-center justify-between gap-2 border-t border-sidebar-border px-2 py-2">
-          <SettingsButton onClick={() => setSettingsOpen(true)} className="hover:bg-sidebar-accent" />
-          <button
-            type="button"
-            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
-            onClick={() => {
-              const next = theme === 'dark' ? 'light' : 'dark'
-              setTheme(next)
-              applyTheme(next)
-            }}
-          >
-            {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
-          </button>
-        </div>
         </div>
       </aside>
 
@@ -756,11 +778,14 @@ function App(): React.JSX.Element {
             questions={activeRun.questions}
             error={activeRun.reviewError}
             onChange={(questions) =>
-              patchRun(activeRun.id, (item) => ({ ...item, questions, reviewError: null }))
+              patchRun(activeRun.id, (item) => ({
+                ...item,
+                questions,
+                reviewError: null
+              }))
             }
             onContinue={() => continueResearch(activeRun.id)}
             onAbort={() => abortRun(activeRun.id)}
-            onOpenSettings={() => setSettingsOpen(true)}
             leading={
               sidebarOpen ? null : (
                 <SidebarToggle
@@ -827,13 +852,26 @@ function App(): React.JSX.Element {
               >
                 {article?.slug === screen.slug ? article.title : 'Report'}
               </h2>
+              <button
+                type="button"
+                aria-pressed={usageOpen}
+                aria-label={usageOpen ? 'Back to the report' : 'Show usage'}
+                className={cn(
+                  'mr-1 flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground',
+                  usageOpen && 'bg-muted text-foreground'
+                )}
+                onClick={() => setUsageOpen((open) => !open)}
+              >
+                <ChartColumn className="size-4" />
+              </button>
             </header>
-            {reportError && article?.slug !== screen.slug ? (
+            {usageOpen ? (
+              <ResearchUsage slug={screen.slug} />
+            ) : reportError && article?.slug !== screen.slug ? (
               <p role="alert" className="px-8 py-4 text-sm text-destructive">
                 {reportError}
               </p>
-            ) : null}
-            {article?.slug === screen.slug ? (
+            ) : article?.slug === screen.slug ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <MarkdownReport markdown={article.markdown} />
               </div>
@@ -862,6 +900,8 @@ function App(): React.JSX.Element {
         onSearchEngineChange={setSearchEngine}
         tavilyKey={tavilyKey}
         onTavilyKeyChange={setTavilyKey}
+        writingTone={writingTone}
+        onWritingToneChange={setWritingTone}
         catalog={provider === 'ollama' ? ollamaCatalog : catalog}
         catalogLoaded={provider !== 'ollama' || ollamaLoaded}
         catalogError={provider === 'ollama' ? ollamaError : catalogError}

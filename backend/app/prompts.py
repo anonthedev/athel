@@ -11,7 +11,7 @@ Match the questions to the topic. When the topic asks which option to choose, or
 The examples show the shape of a question. The subject comes from the topic.
 
 Buying topic: "Which phones sold in India under ₹20,000 list a battery of at least 5000 mAh?"
-Factual topic: "What daily caffeine limit do regulators set for healthy non-pregnant adults?"
+Factual topic: "What daily caffeine intake limit do regulators set for healthy non-pregnant adults?"
 Topic: 
 """
 
@@ -71,24 +71,53 @@ CONDITION C: The page is completely irrelevant (a quiz, a paywall, or a differen
 Question:
 """
 
-REPORT = """Write a specific, comprehensive research report in Markdown from the notes below.
+REPORT = """Write an evidence-led, publication-quality research report in Markdown.
 
-A person will read this as the finished piece. The notes are the only facts you may use. Where the notes are silent, say what was not established.
+The reader should receive a finished article, not a transcript of the research process. The supplied material is the complete evidence base: use no outside facts. Never refer to "the notes", "the checklist", extraction, search rounds, or the writer's instructions.
 
-Begin with a # heading of a few words that names the subject. Follow it with a ## Overview of what the topic is and what the notes support. Develop the body in ## sections that fit the topic. Close with a ## Conclusion that draws together what the notes show, including important disagreements and what remained unestablished.
+SYNTHESIZE BEFORE WRITING
+- Silently merge duplicate claims, repeated search results, and preprint/published/repository versions of the same study.
+- Organize around findings and arguments, not around the source order or the research questions.
+- A fact may appear twice only when each occurrence establishes a genuinely different point. The same evidence may support different arguments, but do not restate the same claim merely with a new citation or wording.
+- Prefer the strongest direct source for a claim. Do not add blogs or news articles as extra corroboration when a paper, official source, or primary record already supports it.
+- There is no target word count. Include every material finding once, explain it fully, and stop. Never pad the report with source-by-source summaries, repeated background, or a conclusion that retells the body.
 
-The questions inside the notes are a coverage checklist, not the outline. Choose section headings that fit the topic. Write in prose paragraphs. Use a list or a small table when the notes compare discrete options on the same facts, such as models and prices.
+STRUCTURE AND ARGUMENT
+- Begin with a short # title.
+- Open with a ## Overview that gives the central answer and why it matters. It is not a table of contents and must not list every section or every unanswered question.
+- Build a coherent body with descriptive ## headings chosen for this topic. Each paragraph should make one clear point, present the best evidence, explain its significance, and transition naturally to the next point.
+- Distinguish observation, experimental result, interpretation, and hypothesis. State what was measured or compared, in which population/model, and by whom when the material provides it.
+- When sources disagree, state the disagreement precisely and explain what evidence supports each side. Do not manufacture consensus.
+- Mention a meaningful limitation or unresolved point where it affects the relevant claim. Gather only substantial remaining gaps in one brief final limitations section if needed; do not repeat them in the overview, body, and conclusion.
+- End with a concise ## Conclusion that answers "What follows from this evidence?" It should synthesize implications and uncertainty, not summarize each preceding section.
 
-Let the notes decide the shape. When they compare products, prices, and specs, write that comparison and keep each price with its date and variant. When they report studies, write what was measured and keep each figure with the people who measured it. A kept fact looks like this: Simner et al. (2006) found grapheme-color synesthesia in 1.1% of a Scottish sample ([Simner et al., 2006](url-from-the-note)). A sentence that only says the phenomenon is fairly common has lost the fact. The citation URL is the one printed under that note.
+EVIDENCE AND CITATIONS
+- Preserve concrete numbers, dates, variants, samples, methods, and comparisons. For example: Simner et al. (2006) found grapheme-color synesthesia in 1.1% of a Scottish sample ([Simner et al., 2006](url-from-the-note)).
+- Cite inline on the sentence the source supports. Use the exact source URL supplied with that claim.
+- Use useful link text: author and year, paper title, product, or publication. Do not use generic labels such as "source", "PubMed", "PMC", or "doi.org" when the material names the work or author.
+- One strong citation is enough for one claim. Add another only when it contributes independent evidence, a different population, or a meaningful disagreement.
+- Never combine a claim with a citation that does not support it. Where the evidence is silent, say once and plainly that the available sources did not establish the point.
 
-When the same person, date, price, or mechanism appears under several questions, place it in the section where it belongs and leave it there. When notes disagree, give each figure with the note that states it. For a partially answered question, write what the notes establish and name the part that is still missing. For a failed question, say briefly that the research did not establish it.
+EDITORIAL STANDARD
+- Write precise, fluent English with varied sentence structure and strong transitions. Prefer concrete verbs and direct sentences over throat-clearing, inflated phrasing, and strings of qualifications.
+- Avoid canned phrases such as "it is important to note", "the evidence collectively suggests", and "further research is needed" unless the supplied evidence makes the exact statement necessary.
+- Define specialist terms on first use. Keep technical detail when it carries meaning; do not make academic prose needlessly difficult.
+- Bold only a few terms that genuinely aid scanning, and only on first mention.
+- Proofread the final answer for duplicated claims, grammar, malformed words, inconsistent dates, and citation quality. Write entirely in English.
 
-Cite inline with a Markdown link on the sentence the note supports. The link text is the author, paper, product, or publication named in that note. When the note has a URL and no name, use the site name. Use the URL listed under the note the sentence comes from, pasted unchanged, including https:// and the host. End the report on the conclusion.
-
-Bold the key names, models, and dates on first mention.
-
-Topic:
+Writing style:
 """
+
+_TONE = {
+    "clear": (
+        "Clear and accessible. Use plain, confident language for an informed general reader. "
+        "Explain technical terms briefly and retain all important nuance and evidence."
+    ),
+    "academic": (
+        "Academic. Use formal scholarly prose and field-appropriate terminology for a specialist reader, "
+        "while remaining concise, readable, and free of needless jargon."
+    ),
+}
 
 
 def gaps(topic: str) -> str:
@@ -115,10 +144,12 @@ def extract_page(question: str, page: str) -> str:
     return f"{EXTRACT}{question}\n\nPage:\n{page}"
 
 
-def write_report(topic: str, notes: str, additional: str) -> str:
+def write_report(topic: str, notes: str, additional: str, tone: str = "clear") -> str:
+    style = _TONE.get(tone, _TONE["clear"])
     return (
-        f"{REPORT}{topic}\n\n"
-        f"Notes:\n{notes}\n\n"
-        "Additional notes, for a study, mechanism, product, or comparison on this topic:\n"
+        f"{REPORT}{style}\n\n"
+        f"Topic:\n{topic}\n\n"
+        f"Evidence grouped by coverage question:\n{notes}\n\n"
+        "Additional evidence relevant to the topic:\n"
         f"{additional}"
     )

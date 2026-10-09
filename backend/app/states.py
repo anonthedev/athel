@@ -34,12 +34,28 @@ class UrlHit(BaseModel):
     question: str
     url: str
 
+class ModelCall(BaseModel):
+    role: Literal["planner", "extractor", "writer", "embedding"]
+    model: str
+    label: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost: float | None = None
+
+class PlannedQuery(BaseModel):
+    question: str
+    queries: list[str]
+
 class OverallState(TypedDict):
     topic: str
+    provider: str
+    writing_tone: Literal["clear", "academic"]
     gaps: list[KnowledgeGap]
     hits: Annotated[list[UrlHit], operator.add]
     findings: Annotated[list[Finding], operator.add]
     additional_info: list[SourcedNote]
+    planned_queries: Annotated[list[PlannedQuery], operator.add]
+    calls: Annotated[list[ModelCall], operator.add]
     research_loops: int
     final_report: str
     dead_urls: Annotated[list[str], operator.add]

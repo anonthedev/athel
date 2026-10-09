@@ -1,6 +1,9 @@
+import io
 import json
+import time
 import unittest
-from unittest.mock import patch
+import urllib.error
+from unittest.mock import Mock, patch
 
 from app.helper.sources import load_specialized, load_specialized_html
 from app.helper.sources.doi import (
@@ -10,7 +13,7 @@ from app.helper.sources.doi import (
     doi_from_url,
     load as load_doi,
 )
-from app.helper.sources.http import Response
+from app.helper.sources.http import Response, get
 from app.helper.sources.pubmed import identify, load as load_pubmed, parse_record, select_sections
 from app.helper.sources.reddit import load as load_reddit, post_id, render
 from app.helper.sources.reddit import Comment, Thread
@@ -98,8 +101,11 @@ class PubMedTests(unittest.TestCase):
         self.assertLess(text.index("Results"), text.index("Introduction"))
 
     def test_load_chains_id_conversion_abstract_and_full_text(self):
+        requested = []
+
         def fetch(url, headers=None):
             del headers
+            requested.append(url)
             if "idconv" in url:
                 return response({"records": [{"pmid": "31904595", "pmcid": "PMC7012345"}]})
             if "efetch" in url:
@@ -113,6 +119,61 @@ class PubMedTests(unittest.TestCase):
         text, source = load_pubmed("https://pmc.ncbi.nlm.nih.gov/articles/PMC7012345/", "hours", fetch=fetch)
         self.assertEqual(source, "https://pubmed.ncbi.nlm.nih.gov/31904595/")
         self.assertIn("Result text about hours.", text)
+        self.assertFalse(any("/pdf" in url for url in requested))
+
+    def test_missing_fulltext_xml_ranks_the_pmc_pdf(self):
+        xml = PUBMED_XML.replace(b"31991704", b"4783416").replace(b"PMC7037491", b"PMC1271596")
+
+        def fetch(url, headers=None):
+            if "idconv" in url:
+                return response({"records": [{"pmid": "4783416", "pmcid": "PMC1271596"}]})
+            if "efetch" in url:
+                return response(xml)
+            if "fullTextXML" in url:
+                return Response(404, url, b"")
+            if url.endswith("/pdf/"):
+                self.assertEqual(url, "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1271596/pdf/")
+                self.assertEqual(headers["Accept"], "application/pdf")
+                return response(b"%PDF-1.4\nscanned journal")
+            return None
+
+        excerpt = "[p.3]\nThe rete ovarii is required for follicle formation."
+        with patch("app.helper.pdf.embedding_configured", return_value=True):
+            with patch("app.helper.pdf.pdf_excerpt", return_value=excerpt) as ranked:
+                text, source = load_pubmed(
+                    "https://pmc.ncbi.nlm.nih.gov/articles/PMC1271596/",
+                    "Was the 1973 study an experiment?",
+                    fetch=fetch,
+                )
+        ranked.assert_called_once()
+        self.assertTrue(ranked.call_args.args[0].startswith(b"%PDF-"))
+        self.assertEqual(ranked.call_args.args[1], "Was the 1973 study an experiment?")
+        self.assertIn("required for follicle formation", text)
+        self.assertIn("Abstract", text)
+        self.assertEqual(source, "https://pubmed.ncbi.nlm.nih.gov/4783416/")
+
+    def test_pdf_failure_keeps_the_abstract(self):
+        xml = PUBMED_XML.replace(b"31991704", b"838624").replace(b"PMC7037491", b"PMC1234254")
+
+        def fetch(url, headers=None):
+            del headers
+            if "idconv" in url:
+                return response({"records": [{"pmid": "838624"}]})
+            if "efetch" in url:
+                return response(xml)
+            if "fullTextXML" in url:
+                return Response(404, url, b"")
+            if "/pdf/" in url:
+                return response(b"<html>not a pdf</html>")
+            return None
+
+        with patch("app.helper.pdf.embedding_configured", return_value=True):
+            with patch("app.helper.pdf.pdf_excerpt") as ranked:
+                text, source = load_pubmed("https://pmc.ncbi.nlm.nih.gov/articles/PMC1234254/", "mechanism", fetch=fetch)
+        ranked.assert_not_called()
+        self.assertIn("Abstract", text)
+        self.assertNotIn("not a pdf", text)
+        self.assertEqual(source, "https://pubmed.ncbi.nlm.nih.gov/838624/")
 
 
 class RedditTests(unittest.TestCase):
@@ -336,10 +397,80 @@ class DispatchTests(unittest.TestCase):
         import app.nodes.search as search
 
         with patch.object(search, "load_specialized", return_value=("Abstract alpha", "https://pubmed.ncbi.nlm.nih.gov/1/")):
-            with patch.object(search, "fetch_response") as fetch:
+            with patch.object(search, "fetch_page") as fetch:
                 loaded = search.load_text("https://pubmed.ncbi.nlm.nih.gov/1/", "question")
         self.assertEqual(loaded, ("Abstract alpha", "https://pubmed.ncbi.nlm.nih.gov/1/"))
         fetch.assert_not_called()
+
+    def test_load_text_follows_a_citation_pdf(self):
+        import app.nodes.search as search
+
+        html = b'<html><meta name="citation_pdf_url" content="https://example.com/paper.pdf"><p>Rete.</p></html>'
+        pdf = b"%PDF-1.4 rete"
+        pages = {
+            "https://example.com/rete": Mock(status=200, data=html, url="https://example.com/rete"),
+            "https://example.com/paper.pdf": Mock(status=200, data=pdf, url="https://example.com/paper.pdf"),
+        }
+
+        with patch.object(search, "load_specialized", return_value=None):
+            with patch.object(search, "embedding_configured", return_value=True):
+                with patch.object(search, "pdf_excerpt", return_value="Page 4 of the rete paper."):
+                    with patch.object(search, "fetch_page", side_effect=lambda url: pages[url]) as fetch_mock:
+                        loaded = search.load_text("https://example.com/rete", "meiosis")
+        self.assertEqual(loaded, ("Page 4 of the rete paper.", "https://example.com/paper.pdf"))
+        self.assertEqual(fetch_mock.call_count, 2)
+
+    def test_rate_limit_skips_the_page(self):
+        import app.nodes.search as search
+
+        limited = Mock(status=429, data=b"slow down", url="https://www.pathologyoutlines.com/topic/ovaryreteovarii.html")
+        with patch.object(search, "load_specialized", return_value=None):
+            with patch.object(search, "fetch_page", return_value=limited) as fetch:
+                loaded = search.load_text(limited.url, "rete")
+        self.assertIsNone(loaded)
+        fetch.assert_called_once_with(limited.url)
+
+
+class HttpGetTests(unittest.TestCase):
+    def test_non_ascii_path_is_percent_encoded(self):
+        url = (
+            "https://www.semanticscholar.org/paper/"
+            "The-role-of-mesonephros-in-ovarian-organogenesis-Mauleón-Bézard/"
+            "4e754acf9d034b7dd5653d425e1f28413a2354c2"
+        )
+        captured = {}
+
+        def urlopen(request, timeout=0):
+            del timeout
+            captured["url"] = request.full_url
+            raise urllib.error.URLError("stop")
+
+        with patch("urllib.request.urlopen", side_effect=urlopen):
+            result = get(url)
+        self.assertIsNone(result)
+        self.assertIn("Maule%C3%B3n-B%C3%A9zard", captured["url"])
+        captured["url"].encode("ascii")
+
+        already = "https://www.semanticscholar.org/paper/Maule%C3%B3n"
+        with patch("urllib.request.urlopen", side_effect=urlopen):
+            get(already)
+        self.assertEqual(captured["url"], already)
+        self.assertNotIn("%25", captured["url"])
+
+    def test_rate_limit_returns_without_sleeping_for_retry_after(self):
+        error = urllib.error.HTTPError(
+            "https://www.pathologyoutlines.com/topic/ovaryreteovarii.html",
+            429,
+            "Too Many Requests",
+            hdrs={"Retry-After": "86400"},
+            fp=io.BytesIO(b"slow down"),
+        )
+        with patch("urllib.request.urlopen", side_effect=error):
+            started = time.monotonic()
+            result = get("https://www.pathologyoutlines.com/topic/ovaryreteovarii.html")
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertEqual(result.status, 429)
+        self.assertEqual(result.data, b"slow down")
 
 
 if __name__ == "__main__":

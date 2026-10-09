@@ -1,4 +1,4 @@
-import type { ModelChoice, Provider, SearchEngine } from '@/lib/settings'
+import type { ModelChoice, Provider, SearchEngine, WritingTone } from '@/lib/settings'
 
 const API = 'http://127.0.0.1:8000'
 
@@ -39,9 +39,21 @@ export type ResearchEvent =
   | { type: 'gaps'; questions: string[] }
   | { type: 'review'; thread_id: string; questions: string[]; error?: string }
   | { type: 'search'; gap_id: number; urls: string[] }
-  | { type: 'finding'; gap_id: number; source: string; answers: boolean; note: string }
+  | {
+      type: 'finding'
+      gap_id: number
+      source: string
+      answers: boolean
+      note: string
+    }
   | { type: 'dead_url'; url: string }
-  | { type: 'gap'; id: number; question: string; status: string; missing: string[] }
+  | {
+      type: 'gap'
+      id: number
+      question: string
+      status: string
+      missing: string[]
+    }
   | { type: 'report'; markdown: string }
   | { type: 'activity'; message: string }
   | { type: 'done' }
@@ -53,6 +65,7 @@ type ResearchAuth = {
   apiKey: string
   models: ModelChoice
   tavilyKey: string
+  writingTone: WritingTone
 }
 
 export function slugify(topic: string): string {
@@ -70,7 +83,9 @@ export async function listReports(signal?: AbortSignal): Promise<ReportSummary[]
 }
 
 export async function getReport(slug: string, signal?: AbortSignal): Promise<string> {
-  const response = await fetch(`${API}/reports/${encodeURIComponent(slug)}`, { signal })
+  const response = await fetch(`${API}/reports/${encodeURIComponent(slug)}`, {
+    signal
+  })
   if (!response.ok) throw new Error('Could not open that report')
   return response.text()
 }
@@ -96,7 +111,8 @@ export async function listOllamaModels(signal?: AbortSignal): Promise<OpenRouter
 
 export async function listModels(signal?: AbortSignal): Promise<OpenRouterModel[]> {
   const response = await fetch(`${API}/models`, { signal })
-  if (!response.ok) throw new ApiError(response.status, await errorMessage(response, 'Could not load OpenRouter models'))
+  if (!response.ok)
+    throw new ApiError(response.status, await errorMessage(response, 'Could not load OpenRouter models'))
   return response.json() as Promise<OpenRouterModel[]>
 }
 
@@ -120,7 +136,8 @@ function researchBody(options: ResearchAuth): Record<string, string> {
     extractor_model: options.models.extractor,
     writer_model: options.models.writer,
     embedding_model: options.models.embedding,
-    tavily_api_key: options.tavilyKey
+    tavily_api_key: options.tavilyKey,
+    writing_tone: options.writingTone
   }
 }
 
@@ -158,7 +175,10 @@ async function postResearch(
 ): Promise<void> {
   const response = await fetch(`${API}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream'
+    },
     body: JSON.stringify(body),
     signal
   })
@@ -170,7 +190,11 @@ async function postResearch(
 
 export async function startResearch(
   topic: string,
-  options: ResearchAuth & { threadId: string; maxIterations: number; searchEngine: SearchEngine },
+  options: ResearchAuth & {
+    threadId: string
+    maxIterations: number
+    searchEngine: SearchEngine
+  },
   onEvent: (event: ResearchEvent) => void,
   signal?: AbortSignal
 ): Promise<void> {
@@ -186,6 +210,60 @@ export async function startResearch(
     onEvent,
     signal
   )
+}
+
+export type TraceCall = {
+  role: string
+  model: string
+  label: string
+  input_tokens: number
+  output_tokens: number
+  cost: number | null
+}
+
+export type TraceQuery = {
+  question: string
+  queries: string[]
+}
+
+export type TraceFinding = {
+  source: string
+  note: string
+  answers: boolean
+}
+
+export type TraceGap = {
+  question: string
+  status: string
+  missing: string[]
+}
+
+export type TraceStep = {
+  nodes: string[]
+  at: string | null
+  calls: TraceCall[]
+  queries: TraceQuery[]
+  questions: string[]
+  urls: string[]
+  findings: TraceFinding[]
+  dead_urls: string[]
+  gaps: TraceGap[]
+  report: boolean
+}
+
+export type ResearchTraceData = {
+  topic: string
+  provider: string
+  calls: TraceCall[]
+  steps: TraceStep[]
+}
+
+export async function getTrace(slug: string, signal?: AbortSignal): Promise<ResearchTraceData> {
+  const response = await fetch(`${API}/reports/${encodeURIComponent(slug)}/trace`, { signal })
+  if (!response.ok) {
+    throw new ApiError(response.status, await errorMessage(response, 'Could not load usage'))
+  }
+  return response.json() as Promise<ResearchTraceData>
 }
 
 export async function abortResearch(threadId: string): Promise<void> {
@@ -211,4 +289,3 @@ export async function resumeResearch(
     signal
   )
 }
-

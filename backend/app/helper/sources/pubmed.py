@@ -27,6 +27,10 @@ _SECTION_RANK = (
     ("introduction", 4),
     ("background", 4),
 )
+_BROWSER = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
 
 
 def matches(url: str) -> bool:
@@ -35,7 +39,6 @@ def matches(url: str) -> bool:
 
 
 def load(url: str, question: str, *, fetch=get) -> tuple[str, str] | None:
-    del question
     kind, value = identify(url)
     if not kind:
         return None
@@ -58,9 +61,12 @@ def load(url: str, question: str, *, fetch=get) -> tuple[str, str] | None:
     fulltext = ""
     if pmcid:
         full_xml = _fulltext(pmcid, fetch)
-        if full_xml is not None:
-            room = TEXT_LIMIT - len(record.text) - 2
-            fulltext = select_sections(full_xml, room) if room > 400 else ""
+        room = TEXT_LIMIT - len(record.text) - 2
+        if full_xml is not None and room > 400:
+            fulltext = select_sections(full_xml, room)
+        if not fulltext and room > 400:
+            excerpt = _pmc_pdf(pmcid, question, fetch)
+            fulltext = excerpt[:room].rstrip() if excerpt else ""
 
     text = record.text if not fulltext else f"{record.text}\n\n{fulltext}"
     text = clip(text)
@@ -225,6 +231,24 @@ def _fulltext(pmcid: str, fetch) -> bytes | None:
     if response is None or response.status != 200 or not response.data:
         return None
     return response.data
+
+
+def _pmc_pdf(pmcid: str, question: str, fetch) -> str:
+    from app.helper.pdf import embedding_configured, pdf_excerpt
+
+    if not question.strip() or not embedding_configured():
+        return ""
+    url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/pdf/"
+    response = fetch(url, headers={"User-Agent": _BROWSER, "Accept": "application/pdf"})
+    if response is None or response.status != 200 or not response.data or not _is_pdf(response.data):
+        return ""
+    return pdf_excerpt(response.data, question)
+
+
+def _is_pdf(data: bytes) -> bool:
+    head = data[:1024]
+    stripped = head.lstrip(b"\xef\xbb\xbf\x00 \t\r\n")
+    return stripped.startswith(b"%PDF-") or b"%PDF-" in head
 
 
 def _ids(pubmed_data) -> tuple[str, str]:

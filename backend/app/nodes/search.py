@@ -3,18 +3,39 @@ import re
 from app.states import OverallState, UrlHit, Finding
 from app.llm import extractor_llm
 from app.prompts import extract_page
+from app.usage import UnreadableModel, collect_calls, structured
 from pydantic import BaseModel
 from langgraph.types import Send
-from trafilatura import fetch_response, extract
+from trafilatura import extract
 from ddgs import DDGS
 from ddgs.exceptions import DDGSException
 from tavily import TavilyClient
 from urllib.parse import urljoin, urlparse
 from app.helper.pdf import embedding_configured, pdf_excerpt
 from app.helper.sources import load_specialized, load_specialized_html
+from app.helper.sources.doi import doi_from_url, excerpt_pdf, load_work, with_excerpt, work_id_from_url, work_urls
+from app.helper.sources.http import get as http_get
+from app.helper.sources.wikipedia import article_url, citation_links, matches as wikipedia_page
+from app.nodes.planning import topic_of_collapse
 
 _tavily_key: ContextVar[str] = ContextVar("tavily_api_key", default="")
 HTML_LIMIT = 12_000
+PAGE_LIMIT = 20_000_000
+_BROWSER = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+
+
+def fetch_page(url: str):
+    # Trafilatura retries 429 and sleeps for Retry-After. Pathology Outlines
+    # sends Retry-After: 86400, which holds the whole research wave for a day.
+    return http_get(
+        url,
+        headers={"User-Agent": _BROWSER, "Accept": "text/html,application/pdf,*/*"},
+        timeout=20,
+        max_bytes=PAGE_LIMIT,
+    )
 
 
 def use_tavily_key(api_key: str) -> Token:
@@ -25,8 +46,16 @@ def reset_tavily_key(token: Token) -> None:
     _tavily_key.reset(token)
 
 
+_SKIP_HOSTS = ("researchgate.net", "sciencedirect.com")
+
+
 def host_of(url: str) -> str:
     return urlparse(url).netloc.lower().removeprefix("www.")
+
+
+def skipped_host(url: str) -> bool:
+    host = host_of(url)
+    return any(host == name or host.endswith("." + name) for name in _SKIP_HOSTS)
 
 
 def landed_url(requested: str, returned: str | bytes | None) -> str:
@@ -53,7 +82,7 @@ def load_text(url: str, question: str) -> tuple[str, str] | None:
     if specialized is not None:
         return specialized
 
-    response = fetch_response(url)
+    response = fetch_page(url)
     if response is None or response.status != 200 or not response.data:
         return None
     source = landed_url(url, response.url)
@@ -67,7 +96,7 @@ def load_text(url: str, question: str) -> tuple[str, str] | None:
     text = extract(html, url=source) or ""
     pdf_url = citation_pdf_url(html, source)
     if pdf_url and pdf_url != source and embedding_configured():
-        hopped = fetch_response(pdf_url)
+        hopped = fetch_page(pdf_url)
         if hopped and hopped.status == 200 and hopped.data and is_pdf(hopped.data):
             excerpt = pdf_excerpt(hopped.data, question)
             if excerpt:
@@ -101,7 +130,7 @@ def tavily_urls(query: str, blocked: set[str]) -> list[str]:
         search_depth="advanced",
         max_results=5,
         include_answer=False,
-        exclude_domains=sorted(blocked)[:150],
+        exclude_domains=sorted(set(blocked).union(_SKIP_HOSTS))[:150],
     )
     found = response.get("results", []) if isinstance(response, dict) else []
     urls = [item["url"] for item in found if isinstance(item, dict) and isinstance(item.get("url"), str)]
@@ -113,7 +142,16 @@ def search(state: dict) -> dict:
         urls = duckduckgo_urls(state["query"])
     else:
         urls = tavily_urls(state["query"], blocked)
-    urls = [url for url in urls if host_of(url) not in blocked]
+    urls = [url for url in urls if host_of(url) not in blocked and not skipped_host(url)]
+    known = {doi for url in urls if (doi := doi_from_url(url))}
+    for url in work_urls(state["query"], known):
+        if url not in urls and host_of(url) not in blocked and not skipped_host(url):
+            urls.append(url)
+    topic = topic_of_collapse(state.get("question") or "")
+    if topic:
+        wiki = article_url(topic)
+        if wiki and wiki not in urls and host_of(wiki) not in blocked and not skipped_host(wiki):
+            urls.append(wiki)
 
     return {
         "hits": [
@@ -122,42 +160,105 @@ def search(state: dict) -> dict:
         ]
     }
 
-def scrape(state: dict) -> dict:
-    class PageResult(BaseModel):
-        answers_gap: bool
-        note: str
-        additional: str = ""
+class PageResult(BaseModel):
+    answers_gap: bool
+    note: str
+    additional: str = ""
 
-    loaded = load_text(state["url"], state["question"])
-    if loaded is None:
-        domain = host_of(state["url"])
-        return {"dead_urls": [state["url"]], "blocked_domains": [domain], "findings": []}
-    text, source = loaded
-    if not text:
-        return {"findings": []}
 
-    result = extractor_llm().with_structured_output(PageResult, include_raw=True).invoke(
-        extract_page(state["question"], text)
-    )
-    
-    if result["parsing_error"] or result["parsed"] is None:
-        return {"findings": []}
-
-    parsed = result["parsed"]
-
+def read_page(question: str, text: str, source: str, gap_id: int) -> Finding | None:
+    try:
+        parsed = structured(
+            extractor_llm(),
+            PageResult,
+            extract_page(question, text),
+            role="extractor",
+            label=source,
+        )
+    except UnreadableModel:
+        return None
     if not parsed.note.strip() and not parsed.additional.strip():
-        return {"findings": []}
+        return None
+    return Finding(
+        gap_id=gap_id,
+        answers_gap=parsed.answers_gap and bool(parsed.note.strip()),
+        note=parsed.note.strip(),
+        source=source,
+        additional=parsed.additional.strip(),
+    )
 
+
+def visited(state: dict, source: str) -> Finding:
+    return Finding(gap_id=state["gap_id"], answers_gap=False, note="", source=source)
+
+
+def scrape(state: dict) -> dict:
+    with collect_calls() as recorded:
+        if wikipedia_page(state["url"]):
+            return scrape_wikipedia(state, recorded)
+        if work_id_from_url(state["url"]):
+            return scrape_work(state, recorded)
+        loaded = load_text(state["url"], state["question"])
+        if loaded is None:
+            return {
+                "dead_urls": [state["url"]],
+                "findings": [],
+                "calls": list(recorded),
+            }
+        text, source = loaded
+        if not text:
+            return {"findings": [], "calls": list(recorded)}
+        findings = []
+        finding = read_page(state["question"], text, source, state["gap_id"])
+        if finding is not None:
+            findings.append(finding)
+        if source != state["url"]:
+            findings.append(visited(state, state["url"]))
+        return {"findings": findings, "calls": list(recorded)}
+
+
+def scrape_work(state: dict, recorded: list) -> dict:
+    loaded = load_work(state["url"], state["question"])
+    if loaded is None:
+        return {"dead_urls": [state["url"]], "findings": [], "calls": list(recorded)}
+    text, source, pdf_url = loaded
+    finding = read_page(state["question"], text, source, state["gap_id"])
+    if finding is None:
+        return {"findings": [visited(state, state["url"])], "calls": list(recorded)}
+    if pdf_url:
+        excerpt = excerpt_pdf(pdf_url, state["question"])
+        if excerpt:
+            fuller = read_page(state["question"], with_excerpt(text, excerpt), source, state["gap_id"])
+            if fuller is not None:
+                finding = fuller
+    return {"findings": [finding, visited(state, state["url"])], "calls": list(recorded)}
+
+
+def scrape_wikipedia(state: dict, recorded: list) -> dict:
+    response = fetch_page(state["url"])
+    if response is None or response.status != 200 or not response.data:
+        return {"dead_urls": [state["url"]], "findings": [], "calls": list(recorded)}
+    page = landed_url(state["url"], response.url)
+    html = response.data.decode("utf-8", errors="replace")
+    findings = [visited(state, state["url"])]
+    dead = []
+    for link in citation_links(html, page):
+        if skipped_host(link):
+            continue
+        loaded = load_text(link, state["question"])
+        if loaded is None:
+            dead.append(link)
+            continue
+        text, source = loaded
+        if not text:
+            continue
+        finding = read_page(state["question"], text, source, state["gap_id"])
+        if finding is not None:
+            findings.append(finding)
     return {
-        "findings": [
-            Finding(
-                gap_id=state["gap_id"],
-                answers_gap=parsed.answers_gap and bool(parsed.note.strip()),
-                note=parsed.note.strip(),
-                source=source,
-                additional=parsed.additional.strip(),
-            )
-        ]
+        "findings": findings,
+        "dead_urls": dead,
+        "calls": list(recorded),
     }
 
 
@@ -172,7 +273,7 @@ def fan_out_scrapes(state: OverallState):
         if key in seen:
             continue
         seen.add(key)
-        if hit.url in dead or host_of(hit.url) in blocked:
+        if hit.url in dead or host_of(hit.url) in blocked or skipped_host(hit.url):
             continue
         sends.append(Send("scrape", {"gap_id": hit.gap_id, "question": hit.question, "url": hit.url}))
     if sends:

@@ -11,6 +11,7 @@ const ollamaEmbeddingStorage = 'deep-research.ollama.embedding-model'
 const iterationsStorage = 'deep-research.max-iterations'
 const searchEngineStorage = 'deep-research.search-engine'
 const tavilyKeyStorage = 'deep-research.tavily-api-key'
+const writingToneStorage = 'deep-research.writing-tone'
 
 export const defaultModels = {
   planner: 'openai/gpt-5-mini',
@@ -27,6 +28,7 @@ export type ModelChoice = {
 }
 
 export type SearchEngine = 'tavily' | 'duckduckgo'
+export type WritingTone = 'clear' | 'academic'
 
 export type Provider = 'openrouter' | 'ollama'
 
@@ -59,6 +61,7 @@ export type ResearchSettings = {
   maxIterations: number
   searchEngine: SearchEngine
   tavilyKey: string
+  writingTone: WritingTone
 }
 
 function readItem(key: string): string {
@@ -89,6 +92,10 @@ function readProvider(): Provider {
   return readItem(providerStorage) === 'ollama' ? 'ollama' : 'openrouter'
 }
 
+function readWritingTone(): WritingTone {
+  return readItem(writingToneStorage) === 'academic' ? 'academic' : 'clear'
+}
+
 export function readSettings(): ResearchSettings {
   const tavilyKey = readItem(tavilyKeyStorage)
   return {
@@ -108,7 +115,8 @@ export function readSettings(): ResearchSettings {
     },
     maxIterations: readIterations(),
     searchEngine: readSearchEngine(tavilyKey),
-    tavilyKey
+    tavilyKey,
+    writingTone: readWritingTone()
   }
 }
 
@@ -127,6 +135,7 @@ export function writeSettings(settings: ResearchSettings): void {
     localStorage.setItem(iterationsStorage, String(settings.maxIterations))
     localStorage.setItem(searchEngineStorage, settings.searchEngine)
     localStorage.setItem(tavilyKeyStorage, settings.tavilyKey)
+    localStorage.setItem(writingToneStorage, settings.writingTone)
   } catch {
     // The desktop window can still run this session if storage is blocked.
   }
